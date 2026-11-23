@@ -53,6 +53,33 @@ jobs:
           writeFileSync('wrangler.jsonc', JSON.stringify(config));
           JS
       - run: npx wrangler d1 migrations apply DB --remote
+      - name: Ensure the Cloudflare Workers subdomain exists
+        run: |
+          node --input-type=module <<'JS'
+          const endpoint = 'https://api.cloudflare.com/client/v4/accounts/' +
+            encodeURIComponent(process.env.CLOUDFLARE_ACCOUNT_ID) + '/workers/subdomain';
+          const headers = {
+            Authorization: 'Bearer ' + process.env.CLOUDFLARE_API_TOKEN,
+            'Content-Type': 'application/json',
+          };
+          async function request(options = {}) {
+            const response = await fetch(endpoint, { headers, ...options, signal: AbortSignal.timeout(20000) });
+            return response.json();
+          }
+          let state = await request();
+          if (!state.success && state.errors?.some(error => error.code === 10007)) {
+            state = await request({
+              method: 'PUT',
+              body: JSON.stringify({ subdomain: 'dorjster-tuya' }),
+            });
+          }
+          const subdomain = state.result?.subdomain;
+          if (!state.success || !/^[a-z0-9-]+$/.test(subdomain || '')) {
+            const errors = state.errors?.map(error => error.code + ': ' + error.message).join(', ');
+            throw new Error('Cloudflare Workers subdomain setup failed: ' + (errors || 'no subdomain returned'));
+          }
+          console.log('Cloudflare Workers subdomain: ' + subdomain + '.workers.dev');
+          JS
       - name: Publish store
         env:
           STORE_ADMIN_PASSWORD: ${{ secrets.STORE_ADMIN_PASSWORD }}
