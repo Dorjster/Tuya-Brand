@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="mn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fff9f8">
+  <meta name="description" content="Tuya Brand онлайн дэлгүүр. Танд таалагдах бараагаа олж, онлайнаар захиалаарай.">
+  <link rel="icon" href="/images/favicon.png" type="image/png">
+  <link rel="stylesheet" href="/theme.css">
+  <script src="/store.js" type="module"></script>
+  <title>Tuya Brand — Онлайн дэлгүүр</title>
+</head>
+<body>
+  <header class="site-header">
+    <div class="shell header-inner">
+      <a class="brand" href="/" aria-label="Tuya Brand home"><img src="/images/tuya-logo.png" alt="Tuya Brand" width="750" height="173"></a>
+      <nav aria-label="Main navigation"><a href="#catalog" id="nav-shop">Дэлгүүр</a><a href="#catalog" id="sale-link">Хямдрал</a></nav>
+      <button id="bag-button" class="bag-button" type="button">Сагс <span id="bag-count">0</span></button>
+    </div>
+  </header>
+  <main class="shell">
+    <section class="hero" aria-labelledby="hero-heading">
+      <div class="hero-copy">
+        <p class="eyebrow"><span></span> TUYA BRAND</p>
+        <h1 id="hero-heading">Танд таалагдах<br class="wide-only"> шинэ сонголт<span>.</span></h1>
+        <p>Өөртөө болон хайртай хүмүүстээ өдөр бүр хэрэглэх бараагаа сонгоорой.</p>
+        <a class="button primary hero-action" href="#catalog" id="shop-link">Бараа үзэх</a>
+      </div>
+      <div class="hero-media">
+        <img src="/images/hero.webp" alt="Ягаан дэвсгэр дээрх цүнх, алчуур, нарны шил" fetchpriority="high">
+      </div>
+    </section>
+    <section class="catalog" id="catalog" aria-labelledby="catalog-title">
+      <div class="catalog-head"><h2 id="catalog-title">Бүх бараа</h2><label class="search"><span class="sr-only">Бараа хайх</span><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Бараа хайх"></label></div>
+      <div class="catalog-controls">
+        <div class="categories" id="categories" aria-label="Product categories"></div>
+        <label class="sorting"><span class="sr-only">Sort products</span><select id="sort"><option value="new">Шинэ бараа эхэнд</option><option value="low">Үнэ өсөхөөр</option><option value="high">Үнэ буурахаар</option><option value="name">Нэрээр эрэмбэлэх</option></select></label>
+      </div>
+      <p id="catalog-status" class="catalog-status" role="status">Бараа ачаалж байна…</p>
+      <div id="product-grid" class="product-grid"></div>
+    </section>
+  </main>
+  <footer><div class="shell footer-inner"><a class="brand" href="/"><img src="/images/tuya-logo.png" alt="Tuya Brand" width="750" height="173"></a><span>Улаанбаатар, Монгол</span></div></footer>
+  <dialog id="product-dialog" class="product-dialog" aria-labelledby="detail-title"><div id="detail-content"></div></dialog>
+  <dialog id="bag-dialog" class="bag-dialog" aria-labelledby="bag-title"><div id="bag-content"></div></dialog>
+  <template id="card-template">
+    <article class="product-card">
+      <div class="product-frame"><button class="product-media" type="button"><img alt="" loading="lazy"><span class="no-image" hidden>Зураг удахгүй нэмэгдэнэ</span><span class="sale-badge" hidden>Хямдрал</span></button><button class="favorite-button" type="button" aria-label="Дуртай бараанд хадгалах">♡</button></div>
+      <div class="product-info"><p class="product-category"></p><h3><button type="button"></button></h3>
+      <div class="prices"><strong></strong><del hidden></del></div>
+      <div class="product-bottom"><span class="stock-label"></span><button class="add-button" type="button">Сагсанд нэмэх</button></div></div>
+    </article>
+  </template>
+  <p id="toast" class="toast" role="status" hidden></p>
+</body>
+</html>
