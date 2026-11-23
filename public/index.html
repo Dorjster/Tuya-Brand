@@ -2,9 +2,9 @@
 <html lang="mn" class="store-document">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#fff9f8">
-  <meta name="description" content="Tuya Brand онлайн дэлгүүр. Танд таалагдах бараагаа олж, онлайнаар захиалаарай.">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#121016">
+  <meta name="description" content="Монгол үндэсний хувцас, хантаазны Tuya Brand цуглуулгыг үзээрэй.">
   <link rel="icon" href="/images/favicon.png" type="image/png">
   <link rel="stylesheet" href="/theme.css">
   <script src="/store.js" type="module"></script>
@@ -14,7 +14,7 @@
   <a class="skip-link" href="#catalog">Барааны жагсаалт руу очих</a>
   <header class="site-header">
     <div class="shell header-inner">
-      <a class="brand" href="/" aria-label="Tuya Brand нүүр хуудас"><img src="/images/tuya-logo.png" alt="Tuya Brand" width="750" height="173"></a>
+      <a class="brand" href="/" aria-label="Tuya Brand нүүр хуудас"><img src="/images/tuya-logo-light.png" alt="Tuya Brand" width="750" height="173"></a>
       <nav aria-label="Үндсэн цэс"><a href="#catalog" id="nav-shop">Дэлгүүр</a><a href="#catalog" id="sale-link">Хямдрал</a></nav>
       <button id="bag-button" class="bag-button" type="button">Сагс <span id="bag-count">0</span></button>
     </div>
@@ -22,12 +22,15 @@
   <main class="shell">
     <section class="hero" aria-labelledby="hero-heading">
       <div class="hero-copy">
-        <h1 id="hero-heading">Өдөр бүрийн<br class="wide-only"> дуртай сонголт<span>.</span></h1>
-        <p>Өөртөө болон хайртай хүмүүстээ зориулсан барааг Tuya Brand-аас сонгоорой.</p>
-        <a class="button primary hero-action" href="#catalog" id="shop-link">Бараа үзэх</a>
+        <h1 id="hero-heading">Монгол үндэсний<br class="wide-only"> хувцас<span>.</span></h1>
+        <p>Уламжлалт хийц, хээ угалзтай хантаазны цуглуулга.</p>
+        <a class="button primary hero-action" href="#catalog" id="shop-link">Цуглуулга үзэх</a>
       </div>
       <div class="hero-media">
-        <img src="/images/hero.webp" alt="Ягаан дэвсгэр дээрх цүнх, алчуур, нарны шил" fetchpriority="high">
+        <picture>
+          <source media="(max-width: 650px)" srcset="/images/hero-mobile.webp">
+          <img src="/images/hero.webp" alt="Цагаан хээтэй улаан монгол хантаазны загвар зураг" fetchpriority="high">
+        </picture>
       </div>
     </section>
     <section class="catalog" id="catalog" aria-labelledby="catalog-title">
@@ -35,15 +38,22 @@
       <div class="catalog-tools">
         <div class="catalog-head">
           <label class="search"><span class="sr-only">Бараа хайх</span><span class="search-icon" aria-hidden="true"></span><input id="search" type="search" placeholder="Бараа хайх"></label>
-          <label class="sorting"><span class="sr-only">Бараа эрэмбэлэх</span><select id="sort"><option value="new">Шинэ бараа эхэнд</option><option value="low">Үнэ өсөхөөр</option><option value="high">Үнэ буурахаар</option><option value="name">Нэрээр эрэмбэлэх</option></select></label>
+          <label class="sorting"><span class="sr-only">Бараа эрэмбэлэх</span><select id="sort"><option value="new">Шинэ бараа</option><option value="low">Үнэ өсөхөөр</option><option value="high">Үнэ буурахаар</option><option value="name">Нэрээр</option></select></label>
         </div>
         <div class="categories" id="categories" aria-label="Барааны ангилал"></div>
       </div>
+      <p id="sample-notice" class="sample-notice" hidden>Энд жишээ загвар, жишээ үнэ харагдаж байна.</p>
       <p id="catalog-status" class="catalog-status" role="status">Бараа ачаалж байна…</p>
       <div id="product-grid" class="product-grid"></div>
     </section>
   </main>
-  <footer><div class="shell footer-inner"><a class="brand" href="/"><img src="/images/tuya-logo.png" alt="Tuya Brand" width="750" height="173"></a><span>Улаанбаатар, Монгол</span></div></footer>
+  <footer><div class="shell footer-inner"><a class="brand" href="/"><img src="/images/tuya-logo-light.png" alt="Tuya Brand" width="750" height="173"></a><span>Улаанбаатар, Монгол</span></div></footer>
+  <nav class="mobile-dock" aria-label="Утасны дэлгүүрийн цэс">
+    <a href="#catalog" id="mobile-shop">Дэлгүүр</a>
+    <a href="#catalog" id="mobile-sale">Хямдрал</a>
+    <button type="button" id="mobile-search">Хайх</button>
+    <button type="button" id="mobile-bag">Сагс <span id="mobile-bag-count">0</span></button>
+  </nav>
   <a class="back-to-top" id="back-to-top" href="#top" aria-label="Хуудасны эхэнд очих" hidden>↑</a>
   <dialog id="product-dialog" class="product-dialog" aria-labelledby="detail-title"><div id="detail-content"></div></dialog>
   <dialog id="bag-dialog" class="bag-dialog" aria-labelledby="bag-title"><div id="bag-content"></div></dialog>

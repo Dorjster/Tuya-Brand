@@ -56,6 +56,7 @@ jobs:
       - name: Publish store
         env:
           STORE_ADMIN_PASSWORD: ${{ secrets.STORE_ADMIN_PASSWORD }}
+          STORE_ADMIN_PASSCODE: ${{ secrets.STORE_ADMIN_PASSCODE }}
         run: |
           umask 077
           secret_file=$(mktemp)
@@ -64,6 +65,8 @@ jobs:
           import { writeFileSync } from 'node:fs';
           const password = process.env.STORE_ADMIN_PASSWORD;
           if (!password || password.length < 16 || password.length > 256) throw new Error('Set STORE_ADMIN_PASSWORD to 16–256 characters.');
-          writeFileSync(process.env.STORE_SECRET_FILE, JSON.stringify({ADMIN_PASSWORD: password}));
+          const code = process.env.STORE_ADMIN_PASSCODE;
+          if (!/^\d{4}$/.test(code || '')) throw new Error('Set STORE_ADMIN_PASSCODE to exactly four digits.');
+          writeFileSync(process.env.STORE_SECRET_FILE, JSON.stringify({ADMIN_PASSWORD: password, ADMIN_PASSCODE: code}));
           JS
           npx wrangler deploy --secrets-file "$secret_file"

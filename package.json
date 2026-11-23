@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "wrangler dev",
     "db:local": "wrangler d1 migrations apply DB --local",
-    "demo:local": "wrangler d1 execute DB --local --file ./demo.sql",
     "check": "node --check src/worker.js && node --check public/store.js && node --check public/admin.js"
   },
   "devDependencies": { "wrangler": "4.166.0" }

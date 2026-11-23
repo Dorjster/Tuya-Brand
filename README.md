@@ -9,13 +9,12 @@ Requires Node.js 24 and npm.
 ```bash
 npm ci
 npm run db:local
-npm run demo:local
 npm run dev
 ```
 
 Open the local URL printed by Wrangler. To try the product dashboard, create a local ignored file called `.dev.vars` before starting the server and set `ADMIN_PASSWORD` to your own password of at least 16 characters. Sign in at `/admin` as `dorjster`.
 
-Sample products and AI-generated product photography are for development. The remote database starts with an empty catalog. The storefront hero uses separate decorative lifestyle imagery.
+When the shop has no published products, it displays four example Mongolian khantaaz designed from Tuya Brand garment reference photos. The example prices are illustrative and the samples are for browsing. Publishing a real product switches the storefront to the live catalog. The sample imagery shows the garments on their own.
 
 ## Deploy from GitHub
 
@@ -23,16 +22,19 @@ Use a dedicated repository under the Dorjster account, with this project at the 
 
 1. In Cloudflare, activate a Workers subdomain and create a D1 database named `tuya-brand`. Copy the Cloudflare account ID and the D1 database ID.
 2. Create a Cloudflare API token scoped to the account with Workers Scripts Edit and D1 Edit permissions. The token grants GitHub Actions deployment access.
-3. In the GitHub repository under **Settings → Secrets and variables → Actions**, add repository variables `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_D1_DATABASE_ID`. Add repository secrets `CLOUDFLARE_API_TOKEN` and `STORE_ADMIN_PASSWORD`. Use a unique 16–256 character admin password.
+3. In the GitHub repository under **Settings → Secrets and variables → Actions**, add repository variables `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_D1_DATABASE_ID`. Add repository secrets `CLOUDFLARE_API_TOKEN`, `STORE_ADMIN_PASSWORD`, and `STORE_ADMIN_PASSCODE`. Use a unique 16–256 character admin password and a four-digit PIN.
 4. Open the **Actions** tab, select **Validate and deploy store**, and run it on `main`. The production URL appears in the **Publish store** step after a successful deployment.
-5. Open `/admin` on the live URL and sign in as `dorjster`. Add products as drafts. Enter their category, description, price, stock and up to four photos. Enable **Дэлгүүрт харуулах** when ready.
+5. Open `/admin` on the live URL and sign in as `dorjster` with the password and PIN. Add products as drafts. Enter their category, description, price, stock and up to four photos. Enable **Дэлгүүрт харуулах** when ready.
 
 ## Бараа нэмэх
 
 1. `/admin` руу орж, **Бараа → Бараа нэмэх**-ийг сонгоно.
 2. Нэр, ангилал, тайлбар, үндсэн үнэ болон үлдэгдэл тоогоо оруулна. Хямдралтай бол үндсэн үнээс бага үнийг **Хямдралын үнэ** талбарт бичнэ.
 3. JPEG, PNG, WebP форматаар 4 хүртэл зураг сонгоно. Эхний зураг жагсаалтад нүүр зураг болно.
-4. Нийтлэх бол **Дэлгүүрт харуулах**-ыг идэвхжүүлээд **Бараа хадгалах**-ыг дарна. Уг сонголтыг идэвхжүүлээгүй бол бараа ноорог хэвээр хадгалагдана.
+4. Өнгөнүүдээ сонгоод хүсвэл өнгө бүрт тохирох зургийн дугаар онооно.
+5. Нийтлэх бол **Дэлгүүрт харуулах**-ыг идэвхжүүлээд **Бараа хадгалах**-ыг дарна. Уг сонголтыг идэвхжүүлээгүй бол бараа ноорог хэвээр хадгалагдана.
+
+Барааны мэдээллийг Markdown-аар оруулахдаа [Tuya Brand-ийн Markdown загвар](public/TUYA_PRODUCT_IMPORT.md)-ыг ашиглана.
 
 ## Store operations
 

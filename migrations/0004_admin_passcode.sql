@@ -1,0 +1,1 @@
+ALTER TABLE sessions ADD COLUMN gate TEXT NOT NULL DEFAULT 'password';

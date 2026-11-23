@@ -7,6 +7,15 @@ const photoPreview = $('#photo-preview');
 const clearPhotos = $('#clear-photos');
 const inventoryStatus = $('#inventory-status');
 const ordersStatus = $('#orders-status');
+const colorList = $('#color-options');
+const importInput = $('#product-import');
+const importStatus = $('#import-status');
+const palette = [
+  ['red','Улаан','#a71d40'], ['blue','Хөх','#264987'], ['black','Хар','#212127'], ['copper','Хүрэн','#945531'],
+  ['white','Цагаан','#f4f1e8'], ['cream','Шаргал','#d8bc91'], ['green','Ногоон','#336446'], ['gray','Саарал','#7f8090'],
+  ['pink','Ягаан','#e484a7'], ['purple','Нил ягаан','#714a93'], ['light-blue','Цэнхэр','#7faed9'], ['yellow','Шар','#d8a82d'],
+].map(([id,name,hex]) => ({id,name,hex}));
+let colorInputs = [];
 let inventory = [];
 let editing;
 let previewUrls = [];
@@ -18,13 +27,27 @@ function setMessage(selector, message) {
   element.hidden = !message;
 }
 
-function signedOut(message = '') {
+async function signedOut(message = '') {
   if (editor.open) editor.close();
   $('#dashboard').hidden = true;
-  $('#login-panel').hidden = false;
-  setMessage('#page-status', '');
+  $('#login-panel').hidden = true;
+  setMessage('#page-status', 'Нэвтрэх эрх шалгаж байна…');
   setMessage('#login-error', message);
-  $('#login').elements.password.value = '';
+  const fields = $('#login').elements;
+  fields.password.value = '';
+  fields.passcode.value = '';
+  try {
+    const mode = await api('/api/admin/sign-in');
+    fields.username.required = fields.password.required = !mode.owner;
+    $('#username-field').hidden = $('#password-field').hidden = mode.owner;
+    fields.passcode.required = mode.passcode;
+    $('#passcode-field').hidden = !mode.passcode;
+    $('#login-panel').hidden = false;
+    setMessage('#page-status', '');
+    if (mode.owner) fields.passcode.focus();
+  } catch (error) {
+    setMessage('#page-status', error.message);
+  }
   inventory = [];
   $('#inventory-list').replaceChildren();
   $('#order-list').replaceChildren();
@@ -38,7 +61,6 @@ function report(error, destination) {
 async function signedIn(session) {
   $('#login-panel').hidden = true;
   $('#dashboard').hidden = false;
-  $('#logout').hidden = Boolean(session.platformSession);
   setMessage('#page-status', '');
   $('#signed-in').textContent = 'Нэвтэрсэн хэрэглэгч · ' + session.username;
   await showTab('products');
@@ -78,12 +100,86 @@ function refreshPreviews() {
   previewUrls.forEach(url => URL.revokeObjectURL(url));
   previewUrls = [...photoInput.files].slice(0,4).map(file => URL.createObjectURL(file));
   const images = previewUrls.length ? previewUrls : clearPhotos.checked ? [] : editing?.images || [];
-  photoPreview.replaceChildren(...images.map(source => {
+  photoPreview.replaceChildren(...images.map((source,index) => {
+    const item = node('div', '', 'admin-photo');
     const image = node('img');
     image.src = source;
     image.alt = 'Барааны зургийн урьдчилсан харагдац';
-    return image;
+    item.append(image,node('span',String(index + 1)));
+    return item;
   }));
+  syncColorPhotos(images.length);
+}
+
+function syncColorPhotos(count) {
+  for (const {check,select,color} of colorInputs) {
+    select.replaceChildren(new Option('Зураг холбохгүй',''), ...Array.from({length:count},(_,i)=>new Option('Зураг ' + (i+1),String(i))));
+    if (color.photo !== null && color.photo < count) select.value = String(color.photo);
+    select.disabled = !check.checked || count === 0;
+  }
+}
+
+function renderColorOptions(existing = []) {
+  const saved = new Map(existing.map(color => [color.id, color]));
+  const options = [...palette, ...existing.filter(color => !palette.some(entry => entry.id === color.id))];
+  colorInputs = options.map(entry => {
+    const color = {...entry,...saved.get(entry.id),photo:saved.get(entry.id)?.photo ?? null};
+    const row = node('div', '', 'admin-color');
+    const label = node('label');
+    const check = node('input');
+    check.type = 'checkbox';
+    check.checked = saved.has(color.id);
+    const swatch = node('span', '', 'color-dot');
+    swatch.style.backgroundColor = color.hex;
+    swatch.setAttribute('aria-hidden','true');
+    label.append(check,swatch,node('span',color.name));
+    const select = node('select');
+    select.setAttribute('aria-label',color.name + ' өнгөний зураг');
+    check.addEventListener('change', () => { select.disabled = !check.checked || !photoPreview.children.length; });
+    select.addEventListener('change', () => { color.photo = select.value === '' ? null : Number(select.value); });
+    row.append(label,select);
+    return {color,check,select,row};
+  });
+  colorList.replaceChildren(...colorInputs.map(entry=>entry.row));
+  syncColorPhotos(photoPreview.children.length);
+}
+
+function importProduct(text) {
+  const block = text.match(/^```tuya-product\s*\r?\n([\s\S]*?)^```\s*$/m);
+  if (!block) throw new Error('Tuya Brand-ийн Markdown загвар ашиглана уу.');
+  let data;
+  try { data = JSON.parse(block[1]); } catch { throw new Error('Markdown дахь барааны мэдээллийг уншиж чадсангүй.'); }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Markdown дахь барааны мэдээллийг шалгана уу.');
+  const fields = ['name','category','description','price','sale_price','stock'];
+  for (const name of fields) {
+    const value = data[name];
+    if (value == null) continue;
+    if (['price','sale_price','stock'].includes(name) ? !Number.isSafeInteger(value) : typeof value !== 'string') {
+      throw new Error('Markdown дахь ' + name + ' талбарыг шалгана уу.');
+    }
+  }
+  if (typeof data.name !== 'string' || !data.name.trim() || typeof data.category !== 'string' || !data.category.trim() ||
+    !Number.isSafeInteger(data.price) || data.price < 1 || data.price > 999999999 ||
+    !Number.isSafeInteger(data.stock) || data.stock < 0 || data.stock > 999999 ||
+    (data.sale_price != null && (data.sale_price < 1 || data.sale_price >= data.price))) {
+    throw new Error('Нэр, ангилал, үнэ болон үлдэгдлийг шалгана уу.');
+  }
+  const choices = data.colors ?? [];
+  if (!Array.isArray(choices) || choices.length > palette.length) throw new Error('Markdown дахь өнгөний сонголтыг шалгана уу.');
+  const ids = new Set();
+  const colors = choices.map(choice => {
+    const entry = palette.find(color=>color.id === choice?.id);
+    const index = choice?.photo;
+    if (!entry || ids.has(entry.id) || (index != null && (!Number.isInteger(index) || index < 1 || index > 4))) {
+      throw new Error('Markdown дахь өнгөний код болон зургийн дугаарыг шалгана уу.');
+    }
+    ids.add(entry.id);
+    return {...entry, photo:index == null ? null : index - 1};
+  });
+  for (const name of fields) form.elements[name].value = data[name] ?? '';
+  if (!editing) $('#product-active').checked = false;
+  renderColorOptions(colors);
+  refreshPreviews();
 }
 
 function openProduct(product) {
@@ -91,6 +187,8 @@ function openProduct(product) {
   setMessage('#editor-error', '');
   form.reset();
   photoError = '';
+  $('#import-guide').open = false;
+  importStatus.textContent = 'Үүний дараа зургуудаа доороос нь сонгоно.';
   $('#editor-title').textContent = product ? 'Бараа засах' : 'Бараа нэмэх';
   if (product) {
     for (const name of ['name','category','description','price','sale_price','stock']) form.elements[name].value = product[name] ?? '';
@@ -99,6 +197,7 @@ function openProduct(product) {
   }
   $('#product-active').checked = Boolean(product?.active);
   $('#clear-photos-label').hidden = !product?.images.length;
+  renderColorOptions(product?.colors);
   refreshPreviews();
   editor.showModal();
 }
@@ -144,7 +243,11 @@ async function refreshOrders(notice = '') {
       if (order.address) card.append(node('p',order.address,'muted'));
       if (order.notes) card.append(node('p',order.notes,'muted'));
       const list = node('ul');
-      for (const item of order.items) list.append(node('li', item.quantity + ' × ' + item.name + ' · ' + money(item.unit_price) + ' / ш'));
+      for (const item of order.items) {
+        const line = node('li', item.quantity + ' × ' + item.name + ' · ' + money(item.unit_price) + ' / ш');
+        if (item.colors?.length) line.append(node('p', item.colors.map(color => color.name + ' × ' + color.quantity).join(', '), 'muted'));
+        list.append(line);
+      }
       card.append(list);
       if (order.status === 'placed') {
         const buttons = node('div','','admin-actions');
@@ -212,6 +315,22 @@ editor.addEventListener('close', () => {
   previewUrls.forEach(url => URL.revokeObjectURL(url));
   previewUrls = [];
 });
+importInput.addEventListener('change', async () => {
+  const file = importInput.files[0];
+  if (!file) return;
+  const current = editing;
+  try {
+    if (file.size > 20000) throw new Error('Markdown файл 20 КБ-аас бага байна.');
+    const contents = await file.text();
+    if (!editor.open || editing !== current || importInput.files[0] !== file) return;
+    importProduct(contents);
+    importStatus.textContent = 'Мэдээлэл орлоо. Зургуудаа сонгоод, үнэ болон үлдэгдлээ шалгаарай.';
+  } catch (error) {
+    importStatus.textContent = error.message;
+  } finally {
+    if (importInput.files[0] === file) importInput.value = '';
+  }
+});
 photoInput.addEventListener('change', () => {
   photoError = photoInput.files.length > 4 ? '4 хүртэл зураг сонгоно уу.' : '';
   if (photoError) photoInput.value = '';
@@ -240,6 +359,10 @@ form.addEventListener('submit', async event => {
     data.set('active',$('#product-active').checked ? '1' : '0');
     if (product) data.set('version',String(product.version));
     if (clearPhotos.checked) data.set('clear_photos','1');
+    const colors = colorInputs.filter(entry => entry.check.checked).map(({color,select}) => ({
+      ...color, photo:select.value === '' ? null : Number(select.value),
+    }));
+    data.set('colors',JSON.stringify(colors));
     for (const photo of photoInput.files) data.append('photos',await compressPhoto(photo),'product.jpg');
     await api('/api/admin/products' + (product ? '/' + product.id : ''),{method:'POST',body:data});
     editor.close();

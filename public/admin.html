@@ -18,8 +18,9 @@
     <section class="panel login-panel" id="login-panel" hidden>
       <h1>Админ нэвтрэх</h1><p class="muted">Бараа, үлдэгдэл, захиалгаа удирдах хэсэг.</p>
       <form id="login" class="fields">
-        <label>Хэрэглэгчийн нэр<input name="username" autocomplete="username" required maxlength="100"></label>
-        <label>Нууц үг<input name="password" type="password" autocomplete="current-password" required maxlength="256"></label>
+        <label id="username-field">Хэрэглэгчийн нэр<input name="username" autocomplete="username" required maxlength="100"></label>
+        <label id="password-field">Нууц үг<input name="password" type="password" autocomplete="current-password" required maxlength="256"></label>
+        <label id="passcode-field" hidden>Админ PIN<input name="passcode" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off"></label>
         <p class="form-message" id="login-error" role="alert" hidden></p>
         <button class="button primary" type="submit">Нэвтрэх</button>
       </form>
@@ -42,9 +43,10 @@
             <ol>
               <li><strong>Бараа нэмэх</strong> товчийг дараад нэр, ангилал, тайлбараа оруулна.</li>
               <li>Үндсэн үнэ, үлдэгдэл тоогоо оруулна. Хямдралтай бол үндсэн үнээс бага дүнг хямдралын үнэд бичнэ.</li>
-              <li>Утас эсвэл компьютерээсээ 4 хүртэл зураг сонгоно. Эхний зураг барааны нүүрэнд харагдана.</li>
+              <li>4 хүртэл зураг сонгоно. Эхний зураг барааны нүүрэнд харагдана. Боломжит өнгөө тэмдэглэж, хүсвэл өнгө бүрийг зурагтай холбоно.</li>
               <li>Шууд нийтлэх бол <strong>Дэлгүүрт харуулах</strong>-ыг идэвхжүүлээд <strong>Бараа хадгалах</strong>-ыг дарна. Тэмдэглээгүй бол ноорог болж хадгалагдана.</li>
             </ol>
+            <a href="/TUYA_PRODUCT_IMPORT.md" download class="guide-download">Markdown загвар татах</a>
           </details>
           <p id="inventory-status" class="muted" role="status"></p><div id="inventory-list"></div>
         </section>
@@ -59,6 +61,11 @@
     <div class="dialog-panel">
       <div class="dialog-head"><h2 id="editor-title">Бараа нэмэх</h2><button type="button" class="close-button" id="close-editor" aria-label="Хаах">×</button></div>
       <form class="fields" id="product-form">
+        <details class="admin-guide" id="import-guide">
+          <summary>Markdown-аар мэдээлэл оруулах</summary>
+          <label>Барааны Markdown файл<input id="product-import" type="file" accept=".md,text/markdown,text/plain"></label>
+          <p class="muted import-message" id="import-status" role="status">Үүний дараа зургуудаа доороос нь сонгоно.</p>
+        </details>
         <label>Барааны нэр<input name="name" required maxlength="100"></label>
         <label>Ангилал<input name="category" required maxlength="45" list="admin-categories"><datalist id="admin-categories"></datalist></label>
         <label>Тайлбар<textarea name="description" maxlength="2000" rows="3"></textarea></label>
@@ -71,6 +78,11 @@
         <p class="muted" id="photo-help">JPEG, PNG, WebP форматаар 4 хүртэл зураг сонгоно. Шинэ зураг сонговол одоогийн зургуудыг солино.</p>
         <div id="photo-preview" class="preview-list"></div>
         <label class="check-option" id="clear-photos-label" hidden><input id="clear-photos" type="checkbox"> Одоогийн зургуудыг устгах</label>
+        <fieldset class="product-colors">
+          <legend>Боломжит өнгө</legend>
+          <p class="muted">Өнгөө тэмдэглээд, хүсвэл сонгосон зургуудын нэгтэй холбоорой.</p>
+          <div id="color-options" class="admin-color-list"></div>
+        </fieldset>
         <label class="check-option"><input id="product-active" type="checkbox"> Дэлгүүрт харуулах</label>
         <p class="form-message" id="editor-error" role="alert" hidden></p>
         <button type="submit" class="button primary" id="save-product">Бараа хадгалах</button>

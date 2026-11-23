@@ -1,6 +1,7 @@
 const tokenPattern = /^[a-f0-9]{64}$/;
 const idPattern = /^[a-z0-9-]{1,64}$/;
 const maximumStock = 999999;
+const maximumColors = 12;
 const imageLimit = 600_000;
 const uploadLimit = 2_450_000;
 const sessionLifetime = 8 * 3600;
@@ -64,11 +65,16 @@ function cookie(request, token, age) {
   return 'store_session=' + token + '; Max-Age=' + age + '; Path=/; HttpOnly; SameSite=Strict' + secure;
 }
 
-async function adminSession(request, db) {
+function passcodeEnabled(env) {
+  return /^\d{4}$/.test(env.ADMIN_PASSCODE ?? '');
+}
+
+async function adminSession(request, env) {
   const token = sessionToken(request);
-  if (!token) return false;
-  return Boolean(await db.prepare('SELECT 1 FROM sessions WHERE token_hash = ? AND expires > ?')
-    .bind(hex(await digest(token)), Math.floor(Date.now()/1000)).first());
+  if (!token || (env.SITE_OWNER_EMAIL && (!siteOwner(request,env) || !passcodeEnabled(env)))) return false;
+  const gate = env.SITE_OWNER_EMAIL ? 'owner-code' : passcodeEnabled(env) ? 'password-code' : 'password';
+  return Boolean(await env.DB.prepare('SELECT 1 FROM sessions WHERE token_hash = ? AND expires > ? AND gate = ?')
+    .bind(hex(await digest(token)), Math.floor(Date.now()/1000), gate).first());
 }
 
 async function readJson(request) {
@@ -99,8 +105,13 @@ async function readJson(request) {
 }
 
 async function login(request, env) {
-  if (!env.ADMIN_PASSWORD || env.ADMIN_PASSWORD.length < 16) fail(503, 'Admin sign-in needs to be configured.');
-  const { username, password } = await readJson(request);
+  const owner = siteOwner(request,env);
+  const requiresPasscode = Boolean(env.SITE_OWNER_EMAIL) || passcodeEnabled(env);
+  if (env.SITE_OWNER_EMAIL && !owner) fail(403, 'Админ хэсэгт эзэмшигчийн бүртгэлээр нэвтэрнэ үү.');
+  if ((requiresPasscode && !passcodeEnabled(env)) || (!owner && (!env.ADMIN_PASSWORD || env.ADMIN_PASSWORD.length < 16))) {
+    fail(503, 'Админ нэвтрэх тохиргоо дутуу байна.');
+  }
+  const { username, password, passcode } = await readJson(request);
   const db = env.DB;
   const now = Math.floor(Date.now()/1000);
   const slot = Math.floor(now/900);
@@ -112,22 +123,25 @@ async function login(request, env) {
       slot = excluded.slot RETURNING attempts`).bind(key, slot),
   ]);
   if (attempt.results[0].attempts > 8) fail(429, 'Too many attempts. Try again in 15 minutes.');
-  const valid = await sameSecret(typeof password === 'string' ? password : '', env.ADMIN_PASSWORD);
-  if (typeof username !== 'string' || username.trim().toLowerCase() !== (env.ADMIN_USERNAME || 'dorjster').toLowerCase() || !valid) {
-    fail(401, 'The username or password is incorrect.');
+  const validCode = !requiresPasscode || await sameSecret(typeof passcode === 'string' ? passcode : '', env.ADMIN_PASSCODE);
+  const validPassword = owner || await sameSecret(typeof password === 'string' ? password : '', env.ADMIN_PASSWORD);
+  const validUser = owner || (typeof username === 'string' && username.trim().toLowerCase() === (env.ADMIN_USERNAME || 'dorjster').toLowerCase());
+  if (!validCode || !validPassword || !validUser) {
+    fail(401, owner ? 'Админ PIN буруу байна.' : 'Нэвтрэх мэдээлэл буруу байна.');
   }
+  const gate = owner ? 'owner-code' : requiresPasscode ? 'password-code' : 'password';
   const token = hex(crypto.getRandomValues(new Uint8Array(32)));
   await db.batch([
     db.prepare('DELETE FROM sessions WHERE expires <= ?').bind(now),
     db.prepare('DELETE FROM login_attempts WHERE key = ?').bind(key),
-    db.prepare('INSERT INTO sessions VALUES (?,?)').bind(hex(await digest(token)), now + sessionLifetime),
+    db.prepare('INSERT INTO sessions (token_hash,expires,gate) VALUES (?,?,?)').bind(hex(await digest(token)), now + sessionLifetime, gate),
   ]);
   return json({ ok: true }, 200, { 'Set-Cookie': cookie(request, token, sessionLifetime) });
 }
 
 async function products(db, admin) {
   const [{ results }, { results: photos }] = await db.batch([
-    db.prepare(`SELECT id,name,category,description,price,sale_price,stock,cover${admin ? ',active,version' : ''}
+    db.prepare(`SELECT id,name,category,description,price,sale_price,stock,cover,colors_json${admin ? ',active,version' : ''}
       FROM products ${admin ? '' : 'WHERE active = 1'} ORDER BY created_at DESC, id DESC`),
     db.prepare(`SELECT photos.id,product_id FROM photos JOIN products ON products.id = photos.product_id
       ${admin ? '' : 'WHERE products.active = 1'} ORDER BY position`),
@@ -137,9 +151,25 @@ async function products(db, admin) {
     if (!photosByProduct.has(photo.product_id)) photosByProduct.set(photo.product_id, []);
     photosByProduct.get(photo.product_id).push('/media/' + photo.id);
   }
-  return results.map(({cover, ...product}) => {
+  return results.map(({cover, colors_json, ...product}) => {
     const images = photosByProduct.get(product.id) ?? [];
-    return { ...product, images: images.length ? images : cover ? [cover] : [] };
+    return { ...product, images: images.length ? images : cover ? [cover] : [], colors: JSON.parse(colors_json) };
+  });
+}
+
+function readProductColors(raw) {
+  let entries;
+  try { entries = JSON.parse(raw); } catch { fail(400, 'Өнгөний мэдээллийг шалгана уу.'); }
+  if (!Array.isArray(entries) || entries.length > maximumColors) fail(400, 'Өнгөний мэдээллийг шалгана уу.');
+  const ids = new Set();
+  return entries.map(color => {
+    if (!color || typeof color.id !== 'string' || !idPattern.test(color.id) || ids.has(color.id) ||
+      typeof color.hex !== 'string' || !/^#[0-9a-f]{6}$/i.test(color.hex)) {
+      fail(400, 'Өнгөний мэдээллийг шалгана уу.');
+    }
+    const photo = color.photo == null ? null : integer(color.photo, 0, 3, 'өнгөний зураг');
+    ids.add(color.id);
+    return {id:color.id, name:safeText(color.name,35,'өнгөний нэр',1), hex:color.hex, photo};
   });
 }
 
@@ -186,12 +216,26 @@ async function saveProduct(request, db, id) {
   const productId = id || crypto.randomUUID();
   const version = id ? integer(form.get('version'), 1, Number.MAX_SAFE_INTEGER, 'product version') : null;
   const replace = uploads.length || form.get('clear_photos') === '1';
+  // Old clients may omit the color field when editing an existing product.
+  const previous = id ? await db.prepare(`SELECT colors_json, cover,
+    (SELECT COUNT(*) FROM photos WHERE product_id=products.id) AS photo_count
+    FROM products WHERE id=? AND version=?`).bind(id,version).first() : null;
+  if (id && !previous) fail(409, 'Барааны мэдээлэл өөрчлөгдсөн байна. Жагсаалтыг шинэчилнэ үү.');
+  const photoCount = replace ? uploads.length : previous?.photo_count || Number(Boolean(previous?.cover));
+  const colors = readProductColors(form.get('colors') ?? previous?.colors_json ?? '[]');
+  for (const color of colors) {
+    if (color.photo !== null && color.photo >= photoCount) {
+      if (form.has('colors')) fail(400, 'Өнгөтэй холбох зургаа эхлээд сонгоно уу.');
+      color.photo = null;
+    }
+  }
+  values.push(JSON.stringify(colors));
   const lock = crypto.randomUUID();
   const changes = id
-    ? db.prepare(`UPDATE products SET name=?,category=?,description=?,price=?,sale_price=?,stock=?,active=?,
+    ? db.prepare(`UPDATE products SET name=?,category=?,description=?,price=?,sale_price=?,stock=?,active=?,colors_json=?,
         cover=CASE WHEN ? THEN NULL ELSE cover END, version=version+1, write_key=? WHERE id=? AND version=?`)
       .bind(...values, Number(Boolean(replace)), lock, id, version)
-    : db.prepare('INSERT INTO products (name,category,description,price,sale_price,stock,active,id,write_key) VALUES (?,?,?,?,?,?,?,?,?)')
+    : db.prepare('INSERT INTO products (name,category,description,price,sale_price,stock,active,colors_json,id,write_key) VALUES (?,?,?,?,?,?,?,?,?,?)')
       .bind(...values, productId, lock);
   const batch = [changes];
   if (replace) {
@@ -218,19 +262,38 @@ async function placeOrder(request, db) {
   const items = new Map();
   for (const item of input.items) {
     if (!item || typeof item.id !== 'string' || !idPattern.test(item.id) || items.has(item.id)) fail(400, 'Invalid cart item.');
-    items.set(item.id, {
-      quantity: integer(item.quantity, 1, 999, 'quantity'),
-      price: integer(item.price, 1, 999999999, 'price'),
-    });
+    const quantity = integer(item.quantity, 1, 999, 'quantity');
+    const choices = item.colors ?? [];
+    if (!Array.isArray(choices) || choices.length > maximumColors) fail(400, 'Захиалгын өнгөө шалгана уу.');
+    const selected = new Map();
+    for (const choice of choices) {
+      if (!choice || typeof choice.id !== 'string' || !idPattern.test(choice.id) || selected.has(choice.id)) {
+        fail(400, 'Захиалгын өнгөө шалгана уу.');
+      }
+      selected.set(choice.id, integer(choice.quantity, 1, 999, 'өнгөний тоо'));
+    }
+    if (selected.size && [...selected.values()].reduce((a,b) => a + b, 0) !== quantity) {
+      fail(400, 'Захиалгын өнгө болон тоог шалгана уу.');
+    }
+    items.set(item.id, {quantity, price:integer(item.price, 1, 999999999, 'price'), selected});
   }
   const orderRef = input.id.toLowerCase();
   const existing = () => db.prepare('SELECT id FROM orders WHERE id=?').bind(orderRef).first();
   if (await existing()) return json({ id: orderRef });
   const ids = [...items.keys()];
-  const { results } = await db.prepare(`SELECT id,name,COALESCE(sale_price,price) AS price,stock
+  const { results } = await db.prepare(`SELECT id,name,COALESCE(sale_price,price) AS price,stock,colors_json
     FROM products WHERE active=1 AND id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
   if (results.length !== ids.length || results.some(p => items.get(p.id).price !== p.price || items.get(p.id).quantity > p.stock)) {
     fail(409, 'A price or stock level changed. Review your bag and try again.');
+  }
+  const orderColors = new Map();
+  for (const product of results) {
+    const available = new Map(JSON.parse(product.colors_json).map(color => [color.id,color]));
+    const selected = items.get(product.id).selected;
+    if (Boolean(available.size) !== Boolean(selected.size) || [...selected.keys()].some(id => !available.has(id))) {
+      fail(409, 'Сонгосон өнгө өөрчлөгдсөн байна. Сагсаа шинэчлээрэй.');
+    }
+    orderColors.set(product.id, [...selected].map(([id,quantity]) => ({id, name:available.get(id).name, quantity})));
   }
   const slot = Math.floor(Date.now() / 900_000);
   const key = hex(await digest(request.headers.get('CF-Connecting-IP') ?? 'local'));
@@ -244,8 +307,8 @@ async function placeOrder(request, db) {
   const writes = [
     db.prepare('INSERT INTO orders (id,name,phone,fulfillment,address,notes) VALUES (?,?,?,?,?,?)')
       .bind(orderRef, name, phone, input.fulfillment, address, notes),
-    ...results.map(p => db.prepare('INSERT INTO order_items VALUES (?,?,?,?,?)')
-      .bind(orderRef, p.id, p.name, items.get(p.id).quantity, p.price)),
+    ...results.map(p => db.prepare('INSERT INTO order_items (order_id,product_id,name,quantity,unit_price,colors_json) VALUES (?,?,?,?,?,?)')
+      .bind(orderRef, p.id, p.name, items.get(p.id).quantity, p.price, JSON.stringify(orderColors.get(p.id)))),
   ];
   try {
     await db.batch(writes);
@@ -260,13 +323,14 @@ async function placeOrder(request, db) {
 async function getOrders(db) {
   const [{results: orders}, {results: items}] = await db.batch([
     db.prepare("SELECT * FROM orders ORDER BY (status = 'placed') DESC, created_at DESC, id DESC LIMIT 100"),
-    db.prepare(`SELECT order_id,name,quantity,unit_price FROM order_items WHERE order_id IN
+    db.prepare(`SELECT order_id,name,quantity,unit_price,colors_json FROM order_items WHERE order_id IN
       (SELECT id FROM orders ORDER BY (status = 'placed') DESC, created_at DESC, id DESC LIMIT 100)`),
   ]);
   const grouped = new Map();
   for (const item of items) {
     if (!grouped.has(item.order_id)) grouped.set(item.order_id, []);
-    grouped.get(item.order_id).push(item);
+    const {colors_json, ...details} = item;
+    grouped.get(item.order_id).push({...details, colors:JSON.parse(colors_json)});
   }
   return orders.map(order => ({...order, items: grouped.get(order.id) ?? []}));
 }
@@ -284,13 +348,15 @@ async function route(request, env) {
   if (!['GET','HEAD'].includes(method) && request.headers.get('Origin') !== url.origin) fail(403, 'Invalid request origin.');
   if (path === '/api/products' && method === 'GET') return json(await products(db, false));
   if (path === '/api/orders' && method === 'POST') return placeOrder(request, db);
+  if (path === '/api/admin/sign-in' && method === 'GET') return json({
+    owner:siteOwner(request,env), passcode:Boolean(env.SITE_OWNER_EMAIL) || passcodeEnabled(env),
+  });
   if (path === '/api/admin/login' && method === 'POST') return login(request, env);
   if (path.startsWith('/api/admin/')) {
     const owner = siteOwner(request, env);
-    if (!owner && !await adminSession(request, db)) fail(401, 'Sign in to manage the store.');
+    if (!await adminSession(request, env)) fail(401, 'Sign in to manage the store.');
     if (path === '/api/admin/session' && method === 'GET') return json({ username: env.ADMIN_USERNAME || 'dorjster', platformSession: owner });
     if (path === '/api/admin/logout' && method === 'POST') {
-      if (owner) return json({ok: true});
       await db.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(hex(await digest(sessionToken(request)))).run();
       return json({ok: true}, 200, {'Set-Cookie': cookie(request, '', 0)});
     }
@@ -312,7 +378,7 @@ async function route(request, env) {
   if (media && ['GET','HEAD'].includes(method)) {
     const photo = await db.prepare('SELECT photos.type,photos.bytes,products.active FROM photos JOIN products ON products.id=photos.product_id WHERE photos.id=?')
       .bind(media[1]).first();
-    if (!photo || (!photo.active && !siteOwner(request, env) && !await adminSession(request, db))) fail(404, 'Photo unavailable.');
+    if (!photo || (!photo.active && !await adminSession(request, env))) fail(404, 'Photo unavailable.');
     return new Response(method === 'HEAD' ? null : new Uint8Array(photo.bytes), {
       headers: {'Content-Type': photo.type, 'Cache-Control': 'private, no-cache'},
     });

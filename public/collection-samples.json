@@ -1,0 +1,100 @@
+[
+  {
+    "id": "sample-crimson-khantaaz",
+    "name": "Цагаан хээтэй улаан хантааз",
+    "category": "Хантааз",
+    "description": "Улаан өнгийн, энгэр болон хормойн хэсэгт цагаан хээтэй монгол хантааз. Энгэр нь зөрүүлж товчлогдох хийцтэй.",
+    "price": 169000,
+    "sale_price": 149000,
+    "stock": 0,
+    "sample": true,
+    "images": [
+      "/images/khantaaz-crimson.webp",
+      "/images/khantaaz-copper.webp"
+    ],
+    "colors": [
+      {
+        "id": "red",
+        "name": "Улаан",
+        "hex": "#a71d40",
+        "photo": 0
+      },
+      {
+        "id": "copper",
+        "name": "Хүрэн",
+        "hex": "#945531",
+        "photo": 1
+      }
+    ]
+  },
+  {
+    "id": "sample-blue-khantaaz",
+    "name": "Дугуй хээтэй хөх хантааз",
+    "category": "Хантааз",
+    "description": "Тод хөх суурин дээр дугуй хээтэй, энгэр эмжээрийг бараан хөх өнгөөр тодруулсан монгол хантааз.",
+    "price": 159000,
+    "sale_price": null,
+    "stock": 0,
+    "sample": true,
+    "images": [
+      "/images/khantaaz-blue.webp"
+    ],
+    "colors": [
+      {
+        "id": "blue",
+        "name": "Хөх",
+        "hex": "#264987",
+        "photo": 0
+      }
+    ]
+  },
+  {
+    "id": "sample-black-khantaaz",
+    "name": "Цэцгэн хээтэй хар хантааз",
+    "category": "Хантааз",
+    "description": "Хар суурин дээр өнгө дагасан цэцгэн хээтэй, алтан өнгийн товчоор тодруулсан монгол хантааз.",
+    "price": 159000,
+    "sale_price": null,
+    "stock": 0,
+    "sample": true,
+    "images": [
+      "/images/khantaaz-black.webp"
+    ],
+    "colors": [
+      {
+        "id": "black",
+        "name": "Хар",
+        "hex": "#212127",
+        "photo": 0
+      }
+    ]
+  },
+  {
+    "id": "sample-copper-khantaaz",
+    "name": "Алтан хээтэй хүрэн хантааз",
+    "category": "Хантааз",
+    "description": "Зэсэрхэг хүрэн өнгийн, энгэр болон хормойн хэсэгт алтлаг хээтэй, зөрүү энгэртэй монгол хантааз.",
+    "price": 169000,
+    "sale_price": null,
+    "stock": 0,
+    "sample": true,
+    "images": [
+      "/images/khantaaz-copper.webp",
+      "/images/khantaaz-crimson.webp"
+    ],
+    "colors": [
+      {
+        "id": "copper",
+        "name": "Хүрэн",
+        "hex": "#945531",
+        "photo": 0
+      },
+      {
+        "id": "red",
+        "name": "Улаан",
+        "hex": "#a71d40",
+        "photo": 1
+      }
+    ]
+  }
+]
