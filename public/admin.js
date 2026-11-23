@@ -13,6 +13,7 @@ const importStatus = $('#import-status');
 const storefrontForm = $('#storefront-form');
 let storefront;
 let storefrontPreviewUrl;
+let storefrontLogoPreviewUrl;
 const defaultHero = '/images/hero.webp';
 const palette = [
   ['red','Улаан','#a71d40'], ['blue','Хөх','#264987'], ['black','Хар','#212127'], ['copper','Хүрэн','#945531'],
@@ -40,12 +41,7 @@ async function signedOut(message = '') {
   const fields = $('#login').elements;
   fields.passcode.value = '';
   try {
-    const mode = await api('/api/admin/sign-in');
-    fields.passcode.minLength = mode.owner ? 4 : 16;
-    fields.passcode.maxLength = mode.owner ? 4 : 256;
-    fields.passcode.inputMode = mode.owner ? 'numeric' : 'text';
-    if (mode.owner) fields.passcode.pattern = '[0-9]{4}';
-    else fields.passcode.removeAttribute('pattern');
+    await api('/api/admin/sign-in');
     $('#login-panel').hidden = false;
     setMessage('#page-status', '');
     fields.passcode.focus();
@@ -87,11 +83,21 @@ async function refreshProducts(notice = '') {
       option.value = name;
       return option;
     }));
-    $('#inventory-list').replaceChildren(...current.map(inventoryRow));
+    renderInventory();
     $('#archive-list').replaceChildren(...archived.map(inventoryRow));
   } catch (error) {
     report(error, inventoryStatus);
   }
+}
+
+function renderInventory() {
+  const query = $('#inventory-search').value.trim().toLowerCase();
+  const status = $('#inventory-state').value;
+  const results = inventory.filter(product => !product.archived &&
+    (status === 'all' || Boolean(product.active) === (status === 'published')) &&
+    (!query || [product.name,product.category,product.sku].some(value=>String(value ?? '').toLowerCase().includes(query))));
+  $('#inventory-list').replaceChildren(...results.map(inventoryRow));
+  if (!results.length && (query || status!=='all')) $('#inventory-list').append(node('p','Тохирох бараа алга.','muted'));
 }
 
 function inventoryRow(product) {
@@ -107,6 +113,7 @@ function inventoryRow(product) {
   details.append(node('strong',product.name),node('p',product.category + ' · ' +
     product.stock + ' ширхэг үлдсэн · ' + (product.archived ? 'Архивт' : product.active ? 'Нийтэлсэн' : 'Ноорог'),'muted'));
   details.append(node('p',product.sale_price ? money(product.price) + ' → ' + money(product.sale_price) : money(product.price),'admin-row-price'));
+  if (product.sku || product.sizes?.length) details.append(node('p',[product.sku,(product.sizes ?? []).join(', ')].filter(Boolean).join(' · '),'muted'));
   const buttons = node('div','','admin-actions');
   if (!product.archived) buttons.append(action('Засах','button secondary',() => openProduct(product)));
   const archive = action(product.archived ? 'Сэргээх' : 'Архивлах','button secondary',async () => {
@@ -123,6 +130,21 @@ function inventoryRow(product) {
     }
   });
   buttons.append(archive);
+  if (product.archived) {
+    const remove = action('Бүр мөсөн устгах','button danger',async () => {
+      if (prompt('«' + product.name + '» барааг бүр мөсөн устгах бол УСТГАХ гэж бичнэ үү.') !== 'УСТГАХ') return;
+      remove.disabled = true;
+      try {
+        await api('/api/admin/products/' + product.id,{method:'DELETE',json:{version:product.version}});
+        await refreshProducts('Барааг бүр мөсөн устгалаа.');
+      } catch (error) {
+        report(error,inventoryStatus);
+      } finally {
+        remove.disabled = false;
+      }
+    });
+    buttons.append(remove);
+  }
   row.append(imageFrame,details,buttons);
   return row;
 }
@@ -168,6 +190,14 @@ function renderStorefrontPreview() {
   const preview = $('#storefront-preview');
   preview.dataset.theme = fields.theme.value;
   preview.dataset.position = fields.position.value;
+  preview.dataset.layout = fields.layout.value;
+  if (storefrontLogoPreviewUrl) URL.revokeObjectURL(storefrontLogoPreviewUrl);
+  const logoFile = $('#storefront-logo').files[0];
+  storefrontLogoPreviewUrl = logoFile ? URL.createObjectURL(logoFile) : null;
+  const logo = $('#storefront-preview-logo');
+  const logoUrl = storefrontLogoPreviewUrl || (fields.remove_logo.checked ? null : storefront?.logo);
+  logo.hidden = !logoUrl;
+  if (logoUrl) logo.src = logoUrl;
   $('#storefront-preview-heading').textContent = fields.heading.value;
   $('#storefront-preview-action').textContent = fields.action.value;
   $('#storefront-preview-image').src = storefrontPreviewUrl || (fields.remove_image.checked ? null : storefront?.image) || defaultHero;
@@ -176,7 +206,7 @@ function renderStorefrontPreview() {
 function fillStorefront(settings) {
   storefront = settings;
   storefrontForm.reset();
-  for (const field of ['heading','description','action','alt','theme','position']) storefrontForm.elements[field].value = settings[field];
+  for (const field of ['heading','description','action','alt','theme','position','brand_name','announcement','location','contact','delivery_note','layout','mobile_position']) storefrontForm.elements[field].value = settings[field];
   renderStorefrontPreview();
   storefrontForm.hidden = false;
 }
@@ -205,6 +235,14 @@ function refreshPreviews() {
     return item;
   }));
   syncColorPhotos(images.length);
+  const materialPhoto = form.elements.material_photo;
+  const selected = materialPhoto.value;
+  materialPhoto.replaceChildren(new Option('Сонгоогүй',''),...images.map((_,i)=>new Option('Зураг ' + (i+1),String(i))));
+  const preferred = materialPhoto.dataset.pending || selected;
+  if (preferred && Number(preferred)<images.length) {
+    materialPhoto.value = preferred;
+    delete materialPhoto.dataset.pending;
+  }
 }
 
 function syncColorPhotos(count) {
@@ -272,7 +310,20 @@ function importProduct(text) {
     ids.add(entry.id);
     return {...entry, photo:index == null ? null : index - 1};
   });
-  for (const name of fields) form.elements[name].value = data[name] ?? '';
+  for (const field of ['sku','size_guide','material','care']) {
+    if (data[field] != null && typeof data[field]!=='string') throw new Error(field + ' талбарыг шалгана уу.');
+  }
+  if (data.sizes != null && (!Array.isArray(data.sizes) || data.sizes.length>16 ||
+    data.sizes.some(size=>typeof size!=='string'||!size.trim()||size.includes(',')||size.length>24))) {
+    throw new Error('Markdown дахь размерын мэдээллийг шалгана уу.');
+  }
+  const materialPhoto = data.material_photo;
+  if (materialPhoto != null && (!Number.isInteger(materialPhoto)||materialPhoto<1||materialPhoto>4)) {
+    throw new Error('Материалын зургийн дугаар 1–4 байна.');
+  }
+  for (const name of [...fields,'sku','size_guide','material','care']) form.elements[name].value = data[name] ?? '';
+  form.elements.sizes.value = (data.sizes ?? []).join(', ');
+  form.elements.material_photo.dataset.pending = materialPhoto == null ? '' : String(materialPhoto-1);
   if (!editing) $('#product-active').checked = false;
   renderColorOptions(colors);
   refreshPreviews();
@@ -282,12 +333,15 @@ function openProduct(product) {
   editing = product;
   setMessage('#editor-error', '');
   form.reset();
+  delete form.elements.material_photo.dataset.pending;
   photoError = '';
   $('#import-guide').open = false;
   importStatus.textContent = 'Үүний дараа зургуудаа доороос нь сонгоно.';
   $('#editor-title').textContent = product ? 'Бараа засах' : 'Бараа нэмэх';
   if (product) {
-    for (const name of ['name','category','description','price','sale_price','stock']) form.elements[name].value = product[name] ?? '';
+    for (const name of ['name','category','description','price','sale_price','stock','sku','size_guide','material','care']) form.elements[name].value = product[name] ?? '';
+    form.elements.sizes.value = (product.sizes ?? []).join(', ');
+    if (product.material_photo != null) form.elements.material_photo.dataset.pending = String(product.material_photo);
   }
   $('#product-active').checked = Boolean(product?.active);
   $('#clear-photos-label').hidden = !product?.images.length;
@@ -296,23 +350,26 @@ function openProduct(product) {
   editor.showModal();
 }
 
-async function compressPhoto(file) {
+async function compressPhoto(file,{transparent=false}={}) {
   if (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size > 20_000_000) {
     throw new Error('20 МБ-аас бага JPEG, PNG эсвэл WebP зураг сонгоно уу.');
   }
   const image = await createImageBitmap(file).catch(() => { throw new Error('Сонгосон зургуудын нэгийг нээж чадсангүй.'); });
   try {
     const canvas = node('canvas');
+    if (Math.max(image.width,image.height)<=2400 && file.size<=1_500_000) return file;
     const context = canvas.getContext('2d');
-    for (const maxSize of [1440, 1080, 760, 520]) {
+    for (const [maxSize,quality] of [[2400,.94],[2400,.87],[2000,.9],[1600,.86],[1200,.84],[900,.8]]) {
       const ratio = Math.min(1, maxSize / Math.max(image.width, image.height));
       canvas.width = Math.max(1, Math.round(image.width * ratio));
       canvas.height = Math.max(1, Math.round(image.height * ratio));
-      context.fillStyle = '#ffffff';
-      context.fillRect(0,0,canvas.width,canvas.height);
+      if (!transparent) {
+        context.fillStyle = '#ffffff';
+        context.fillRect(0,0,canvas.width,canvas.height);
+      }
       context.drawImage(image,0,0,canvas.width,canvas.height);
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', .86));
-      if (blob && blob.size <= 600000) return blob;
+      const blob = await new Promise(resolve => canvas.toBlob(resolve,transparent ? 'image/webp' : 'image/jpeg',quality));
+      if (blob && blob.size <= 1_500_000) return blob;
     }
     throw new Error('Зургийн хэмжээ хэт том байна. Жижиг зураг сонгоно уу.');
   } finally {
@@ -339,7 +396,8 @@ async function refreshOrders(notice = '') {
       const list = node('ul');
       for (const item of order.items) {
         const line = node('li', item.quantity + ' × ' + item.name + ' · ' + money(item.unit_price) + ' / ш');
-        if (item.colors?.length) line.append(node('p', item.colors.map(color => color.name + ' × ' + color.quantity).join(', '), 'muted'));
+        if (item.variants?.length) line.append(node('p',item.variants.map(v=>[v.size,v.color].filter(Boolean).join(' / ') + ' × ' + v.quantity).join(', '),'muted'));
+        else if (item.colors?.length) line.append(node('p', item.colors.map(color => color.name + ' × ' + color.quantity).join(', '), 'muted'));
         list.append(line);
       }
       card.append(list);
@@ -408,6 +466,7 @@ $('#logout').addEventListener('click', async () => {
 for (const tab of ['products','categories','storefront','orders']) {
   $('#' + tab + '-tab').addEventListener('click', () => showTab(tab));
 }
+for (const id of ['inventory-search','inventory-state']) $('#' + id).addEventListener('input',renderInventory);
 $('#clear-sale').addEventListener('click',() => {
   form.elements.sale_price.value = '';
   form.elements.sale_price.focus();
@@ -430,6 +489,8 @@ $('#category-form').addEventListener('submit',async event => {
 storefrontForm.addEventListener('input',event => {
   if (event.target === $('#storefront-image') && event.target.files.length) storefrontForm.elements.remove_image.checked = false;
   if (event.target === storefrontForm.elements.remove_image && event.target.checked) $('#storefront-image').value = '';
+  if (event.target === $('#storefront-logo') && event.target.files.length) storefrontForm.elements.remove_logo.checked = false;
+  if (event.target === storefrontForm.elements.remove_logo && event.target.checked) $('#storefront-logo').value = '';
   renderStorefrontPreview();
 });
 storefrontForm.addEventListener('submit',async event => {
@@ -443,7 +504,10 @@ storefrontForm.addEventListener('submit',async event => {
     data.set('version',String(storefront.version));
     data.set('remove_image',storefrontForm.elements.remove_image.checked ? '1' : '0');
     const photo = $('#storefront-image').files[0];
-    if (photo) data.set('image',await compressPhoto(photo),'hero.jpg');
+    if (photo) data.set('image',await compressPhoto(photo),'hero');
+    const logo = $('#storefront-logo').files[0];
+    if (logo) data.set('logo',await compressPhoto(logo,{transparent:true}),'logo');
+    data.set('remove_logo',storefrontForm.elements.remove_logo.checked ? '1' : '0');
     fillStorefront(await api('/api/admin/storefront',{method:'POST',body:data}));
     status.textContent = 'Нүүр хуудас шинэчлэгдлээ.';
   } catch (error) {
@@ -507,6 +571,7 @@ form.addEventListener('submit', async event => {
       ...color, photo:select.value === '' ? null : Number(select.value),
     }));
     data.set('colors',JSON.stringify(colors));
+    data.set('sizes',JSON.stringify(form.elements.sizes.value.split(',').map(size=>size.trim()).filter(Boolean)));
     for (const photo of photoInput.files) data.append('photos',await compressPhoto(photo),'product.jpg');
     await api('/api/admin/products' + (product ? '/' + product.id : ''),{method:'POST',body:data});
     editor.close();

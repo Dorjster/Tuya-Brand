@@ -12,7 +12,7 @@ npm run db:local
 npm run dev
 ```
 
-Open the local URL printed by Wrangler. To try the product dashboard, create a local ignored file called `.dev.vars` before starting the server and set `ADMIN_PASSWORD` to your own password of at least 16 characters. Enter that value in the single admin code field at `/admin`.
+Open the local URL printed by Wrangler. To try the product dashboard, create a local ignored file called `.dev.vars` before starting the server and set `ADMIN_PASSCODE` to your own password of exactly four digits. Enter that value in the single admin code field at `/admin`.
 
 When the shop has no published products, it displays example Mongolian clothing designed from Tuya Brand garment reference photos. The example prices are illustrative and the samples are for browsing. Publishing a real product switches the storefront to the live catalog. The sample imagery shows the garments on their own.
 
@@ -22,9 +22,9 @@ Use a dedicated repository under the Dorjster account, with this project at the 
 
 1. In Cloudflare, activate a Workers subdomain and create a D1 database named `tuya-brand`. Copy the Cloudflare account ID and the D1 database ID.
 2. Create a Cloudflare API token scoped to the account with Workers Scripts Edit and D1 Edit permissions. The token grants GitHub Actions deployment access.
-3. In the GitHub repository under **Settings → Secrets and variables → Actions**, add repository variables `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_D1_DATABASE_ID`. Add repository secrets `CLOUDFLARE_API_TOKEN`, `STORE_ADMIN_PASSWORD`,. Use a unique 16–256 character admin code for `STORE_ADMIN_PASSWORD`.
+3. In the GitHub repository under **Settings → Secrets and variables → Actions**, add repository variables `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_D1_DATABASE_ID`. Add repository secrets `CLOUDFLARE_API_TOKEN`, `STORE_ADMIN_PASSCODE`,. Use a unique four-digit admin PIN for `STORE_ADMIN_PASSCODE`.
 4. Open the **Actions** tab, select **Validate and deploy store**, and run it on `main`. The production URL appears in the **Publish store** step after a successful deployment.
-5. Open `/admin` on the live URL and sign in with the admin code saved as `STORE_ADMIN_PASSWORD`. Add products as drafts. Enter their category, description, price, stock and up to four photos. Enable **Дэлгүүрт харуулах** when ready.
+5. Open `/admin` on the live URL and sign in with the admin code saved as `STORE_ADMIN_PASSCODE`. Add products as drafts. Enter their category, description, price, stock and up to four photos. Enable **Дэлгүүрт харуулах** when ready.
 
 ## Бараа нэмэх
 
@@ -40,7 +40,7 @@ Use a dedicated repository under the Dorjster account, with this project at the 
 
 - Use **Нүүр хуудас** in the admin dashboard to change the cover image, wording, theme, and photo focal point. Settings apply to the next storefront visit.
 - Use **Ангилал** to manage product types. Removing a type moves its products to **Ангилалгүй**. Archived products leave the storefront, retain their order history, and can be restored as drafts.
-- The storefront filters by product type and actual price, including discounts.
+- The storefront filters by product type and actual price, including discounts. Products can offer sizes and colors with a shared inventory total. The product page can show measurements, material, care instructions, and a close-up image.
 
 - Set an optional sale price below the regular price. The product will appear in the sale filter while it has a sale price.
 - Use **Дэлгүүрт харуулах** to publish or unpublish a product. Product availability updates across devices. Photo uploads are resized in the browser and replace the current image set.

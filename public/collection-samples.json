@@ -9,7 +9,8 @@
     "stock": 0,
     "sample": true,
     "images": [
-      "/images/khantaaz-studded.webp"
+      "/images/khantaaz-studded.webp",
+      "/images/detail-studded.webp"
     ],
     "colors": [
       {
@@ -18,7 +19,8 @@
         "hex": "#212127",
         "photo": 0
       }
-    ]
+    ],
+    "material_photo": 1
   },
   {
     "id": "sample-set-crimson-ivory",
@@ -72,7 +74,8 @@
     "stock": 0,
     "sample": true,
     "images": [
-      "/images/jacket-magenta.webp"
+      "/images/jacket-magenta.webp",
+      "/images/detail-magenta.webp"
     ],
     "colors": [
       {
@@ -81,7 +84,8 @@
         "hex": "#a02771",
         "photo": 0
       }
-    ]
+    ],
+    "material_photo": 1
   },
   {
     "id": "sample-crimson-khantaaz",
@@ -94,7 +98,8 @@
     "sample": true,
     "images": [
       "/images/khantaaz-crimson.webp",
-      "/images/khantaaz-copper.webp"
+      "/images/khantaaz-copper.webp",
+      "/images/detail-crimson.webp"
     ],
     "colors": [
       {
@@ -109,7 +114,8 @@
         "hex": "#945531",
         "photo": 1
       }
-    ]
+    ],
+    "material_photo": 2
   },
   {
     "id": "sample-blue-khantaaz",
@@ -121,7 +127,8 @@
     "stock": 0,
     "sample": true,
     "images": [
-      "/images/khantaaz-blue.webp"
+      "/images/khantaaz-blue.webp",
+      "/images/detail-cobalt.webp"
     ],
     "colors": [
       {
@@ -130,7 +137,8 @@
         "hex": "#264987",
         "photo": 0
       }
-    ]
+    ],
+    "material_photo": 1
   },
   {
     "id": "sample-black-khantaaz",

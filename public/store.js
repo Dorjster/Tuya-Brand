@@ -19,10 +19,11 @@ let filters = {type:'',minPrice:null,maxPrice:null};
 let loaded = false;
 let toastTimer;
 let orderKey;
+let deliveryNote = '';
 let bag = {};
 try {
   const saved = JSON.parse(localStorage.getItem('tuya_bag') || '{}');
-  bag = Object.fromEntries(Object.entries(saved).filter(([id,q]) => /^[a-z0-9-]{1,64}(?:~[a-z0-9-]{1,64})?$/.test(id) && Number.isInteger(q) && q > 0 && q <= 999));
+  bag = Object.fromEntries(Object.entries(saved).filter(([id,q]) => /^[a-z0-9-]{1,64}(?:~[a-z0-9-]{0,64})?(?:~[^~]{1,300})?$/.test(id) && Number.isInteger(q) && q > 0 && q <= 999));
 } catch {}
 
 const quantityInBag = id => Object.entries(bag)
@@ -51,17 +52,17 @@ function toast(text) {
   toastTimer = setTimeout(() => { message.hidden = true; }, 2300);
 }
 
-function addProduct(product, color) {
-  if (product.sample || (product.colors?.length && !color)) return;
+function addProduct(product, color, size) {
+  if (product.sample || (product.colors?.length && !color) || (product.sizes?.length && !size)) return;
   if (quantityInBag(product.id) >= Math.min(product.stock,999)) {
     toast('Боломжит бүх ширхэгийг сагсандаа нэмсэн байна.');
     return;
   }
-  const key = color ? product.id + '~' + color.id : product.id;
+  const key = size ? product.id + '~' + (color?.id ?? '') + '~' + encodeURIComponent(size).replaceAll('~','%7E') : color ? product.id + '~' + color.id : product.id;
   bag[key] = (Object.hasOwn(bag,key) ? bag[key] : 0) + 1;
   orderKey = null;
   updateBag();
-  toast(product.name + (color ? ' · ' + color.name : '') + ' сагсанд нэмэгдлээ.');
+  toast([product.name,color?.name,size].filter(Boolean).join(' · ') + ' сагсанд нэмэгдлээ.');
 }
 
 function createProductGallery(product) {
@@ -88,12 +89,25 @@ function createProductGallery(product) {
   }
 
   const count = node('span', '', 'gallery-count');
+  const detailPhoto = Number.isInteger(product.material_photo) && Boolean(photos[product.material_photo]);
+  const material = detailPhoto ? action('Материал', 'gallery-control', () => showPhoto(product.material_photo)) : null;
+  let panX = 50;
+  let panY = 50;
+  function positionZoom(x,y) {
+    panX = Math.max(0,Math.min(100,x));
+    panY = Math.max(0,Math.min(100,y));
+    frame.style.setProperty('--zoom-center',panX+'% '+panY+'%');
+  }
   const controls = node('div', '', 'gallery-tools');
   const zoom = action('Томруулах', 'gallery-control', () => {
     const expanded = gallery.classList.toggle('is-zoomed');
     zoom.setAttribute('aria-pressed', String(expanded));
+    zoom.textContent = expanded ? 'Багасгах' : 'Томруулах';
+    positionZoom(50,50);
+    if (expanded) frame.focus({preventScroll:true});
   });
   zoom.setAttribute('aria-pressed','false');
+  if (material) controls.append(material);
   controls.append(zoom);
   stage.append(count,controls);
 
@@ -116,9 +130,11 @@ function createProductGallery(product) {
     if (index !== active) {
       gallery.classList.remove('is-zoomed');
       zoom.setAttribute('aria-pressed','false');
+      zoom.textContent = 'Томруулах';
     }
     active = index;
     count.textContent = (index + 1) + ' / ' + photos.length;
+    if (material) material.setAttribute('aria-pressed',String(index === product.material_photo));
     previous.disabled = index === 0;
     next.disabled = index === photos.length - 1;
     thumbnails.forEach((button,i) => button.setAttribute('aria-pressed',String(i === index)));
@@ -132,21 +148,33 @@ function createProductGallery(product) {
     });
   }
 
+  frame.tabIndex = 0;
+  frame.setAttribute('role','region');
+  frame.setAttribute('aria-label','Барааны зургийн цомог');
+  frame.addEventListener('pointermove', event => {
+    if (!gallery.classList.contains('is-zoomed') || (event.pointerType === 'touch' && !event.buttons)) return;
+    const box = frame.getBoundingClientRect();
+    positionZoom((event.clientX-box.left)*100/box.width,(event.clientY-box.top)*100/box.height);
+  });
+  frame.addEventListener('keydown', event => {
+    if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return;
+    if (gallery.classList.contains('is-zoomed')) {
+      event.preventDefault();
+      positionZoom(panX + (event.key==='ArrowRight'?12:event.key==='ArrowLeft'?-12:0),
+        panY + (event.key==='ArrowDown'?12:event.key==='ArrowUp'?-12:0));
+    } else if (photos.length > 1 && (event.key==='ArrowLeft'||event.key==='ArrowRight')) {
+      event.preventDefault();
+      showPhoto(active+(event.key==='ArrowRight'?1:-1));
+    }
+  });
   if (photos.length > 1) {
-    frame.tabIndex = 0;
-    frame.setAttribute('role','region');
-    frame.setAttribute('aria-label','Барааны зургийн цомог');
     stage.append(previous,next);
     thumbs.append(...thumbnails);
     gallery.append(thumbs);
     frame.addEventListener('scroll', () => {
       if (frame.clientWidth) update(Math.max(0,Math.min(photos.length - 1,Math.round(frame.scrollLeft / frame.clientWidth))));
     }, {passive:true});
-    frame.addEventListener('keydown', event => {
-      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-      event.preventDefault();
-      showPhoto(active + (event.key === 'ArrowRight' ? 1 : -1));
-    });
+
   }
   update(0);
   return { gallery, showPhoto };
@@ -161,6 +189,8 @@ function showDetail(product, initialColor) {
   const { gallery, showPhoto } = createProductGallery(product);
   const copy = node('div', '', 'detail-copy');
   const colors = product.colors ?? [];
+  const sizes = product.sizes ?? [];
+  let selectedSize = sizes.length === 1 ? sizes[0] : null;
   let selectedColor = initialColor ?? (product.sample || colors.length === 1 ? colors[0] : null);
   const shown = displayedVariant(product,selectedColor);
   const title = node('h2',shown.name);
@@ -176,14 +206,15 @@ function showDetail(product, initialColor) {
   });
   viewBag.hidden = true;
   const addButton = action('Сагсанд нэмэх', 'button detail-add', () => {
-    addProduct(product,selectedColor);
-    feedback.textContent = selectedColor ? selectedColor.name + ' өнгийг сагсанд нэмлээ.' : 'Сагсанд нэмлээ.';
+    addProduct(product,selectedColor,selectedSize);
+    const options = [selectedColor?.name,selectedSize].filter(Boolean).join(' / ');
+    feedback.textContent = options ? options + ' · Сагсанд нэмлээ.' : 'Сагсанд нэмлээ.';
     viewBag.hidden = false;
     updateAddButton(true);
   });
 
   function updateAddButton(added = false) {
-    addButton.disabled = !product.stock || fullQuantity() || (colors.length > 0 && !selectedColor);
+    addButton.disabled = !product.stock || fullQuantity() || (colors.length > 0 && !selectedColor) || (sizes.length > 0 && !selectedSize);
     addButton.textContent = !product.stock ? 'Дууссан' : fullQuantity() ? 'Сагсанд байгаа' :
       added ? 'Дахин нэмэх' : 'Сагсанд нэмэх';
   }
@@ -220,7 +251,31 @@ function showDetail(product, initialColor) {
     choices.append(label,swatches);
     copy.append(choices);
   }
+  if (sizes.length) {
+    const group = node('fieldset','','store-color-options size-choices');
+    const legend = node('legend',selectedSize ? 'Размер · ' + selectedSize : 'Размер сонгох');
+    const buttons = node('div','','swatch-list');
+    for (const size of sizes) {
+      const button = action(size,'swatch-choice',() => {
+        selectedSize = size;
+        legend.textContent = 'Размер · ' + size;
+        for (const option of buttons.children) option.setAttribute('aria-pressed',String(option === button));
+        if (!product.sample) updateAddButton();
+      });
+      button.setAttribute('aria-pressed',String(size===selectedSize));
+      buttons.append(button);
+    }
+    group.append(legend,buttons);
+    copy.append(group);
+  }
   if (product.description) copy.append(description);
+  for (const [title,text] of [['Размерын заавар',product.size_guide],['Материал',product.material],['Арчилгаа',product.care]]) {
+    if (!text) continue;
+    const details = node('details','','product-fact');
+    details.append(node('summary',title),node('p',text));
+    copy.append(details);
+  }
+  if (product.sku) copy.append(node('p','SKU · ' + product.sku,'detail-note'));
   columns.append(gallery,copy);
   panel.append(close,columns);
   if (product.sample) {
@@ -356,8 +411,8 @@ function renderCatalog() {
       add.textContent = 'Дэлгэрэнгүй';
       add.addEventListener('click',openDetail);
       fragment.querySelector('.product-card').classList.add('sample-card');
-    } else if (product.colors?.length) {
-      add.textContent = 'Өнгө сонгох';
+    } else if (product.colors?.length || product.sizes?.length) {
+      add.textContent = product.sizes?.length ? 'Размер сонгох' : 'Өнгө сонгох';
       add.disabled = !product.stock;
       add.addEventListener('click',openDetail);
     } else {
@@ -393,19 +448,28 @@ function bagPanel(title) {
 
 function currentItems() {
   return Object.entries(bag).map(([key,quantity]) => {
-    const [id,colorId] = key.split('~');
+    const [id,colorId,encodedSize] = key.split('~');
+    let size = '';
+    if (encodedSize) {
+      try { size = decodeURIComponent(encodedSize); } catch { size = '–'; }
+    }
     const product = products.find(product => product.id === id);
-    return {key,id,colorId,quantity,product,color:product?.colors?.find(color => color.id === colorId)};
+    return {key,id,colorId,size,quantity,product,color:product?.colors?.find(color => color.id === colorId)};
   });
 }
 
 function checkoutItems(items) {
   const ordered = new Map();
-  for (const {id,product,color,quantity} of items) {
-    if (!ordered.has(id)) ordered.set(id,{id,price:currentPrice(product),quantity:0,colors:[]});
+  for (const {id,product,color,size,quantity} of items) {
+    if (!ordered.has(id)) ordered.set(id,{id,price:currentPrice(product),quantity:0,colors:[],variants:[]});
     const line = ordered.get(id);
     line.quantity += quantity;
-    if (color) line.colors.push({id:color.id,quantity});
+    if (color) {
+      const previous = line.colors.find(entry=>entry.id===color.id);
+      if (previous) previous.quantity += quantity;
+      else line.colors.push({id:color.id,quantity});
+    }
+    if (size) line.variants.push({size,color:color?.id ?? '',quantity});
   }
   return [...ordered.values()];
 }
@@ -420,14 +484,15 @@ function renderBag(notice) {
   }
   let total = 0;
   let canOrder = true;
-  for (const {key,id,colorId,quantity,product,color} of items) {
+  for (const {key,id,colorId,size,quantity,product,color} of items) {
     const row = node('div', '', 'bag-row');
     const label = node('div', '', 'bag-item');
     const validColor = colorId ? Boolean(color) : !product?.colors?.length;
-    const valid = product && !product.sample && validColor && quantityInBag(id) <= Math.min(product.stock,999);
+    const validSize = size ? product?.sizes?.includes(size) : !product?.sizes?.length;
+    const valid = product && !product.sample && validColor && validSize && quantityInBag(id) <= Math.min(product.stock,999);
     label.append(node('strong', product?.name || 'Боломжгүй бараа'), node('br'));
-    if (color) label.append(node('small',color.name + ' · '));
-    label.append(node('small', !validColor ? 'Өнгөө дахин сонгоно уу.' : valid ? money(currentPrice(product)) + ' / ш' :
+    if (color || size) label.append(node('small',[color?.name,size].filter(Boolean).join(' / ') + ' · '));
+    label.append(node('small', !validColor || !validSize ? 'Өнгө, размераа дахин сонгоно уу.' : valid ? money(currentPrice(product)) + ' / ш' :
       'Боломжит тоо: ' + (product?.stock ?? 0)));
     if (!valid) canOrder = false;
     if (product) total += quantity * currentPrice(product);
@@ -443,7 +508,7 @@ function renderBag(notice) {
     minus.setAttribute('aria-label', 'Тоо хасах');
     const plus = action('+', '', () => change(quantity + 1));
     plus.setAttribute('aria-label', 'Тоо нэмэх');
-    plus.disabled = !product || !validColor || quantityInBag(id) >= Math.min(product.stock,999);
+    plus.disabled = !product || !validColor || !validSize || quantityInBag(id) >= Math.min(product.stock,999);
     buttons.append(minus, node('span', String(quantity)), plus);
     row.append(label,buttons);
     panel.append(row);
@@ -469,6 +534,7 @@ function renderCheckout(items) {
     <label>Нэмэлт тайлбар<textarea name="notes" rows="2" maxlength="500"></textarea></label>
     <p class="form-message" role="alert" hidden></p>
     <button class="button primary" type="submit">Захиалга илгээх</button>`;
+  if (deliveryNote) form.prepend(node('p',deliveryNote,'muted checkout-delivery'));
   const back = action('Сагс руу буцах', 'button secondary wide-button', () => renderBag());
   panel.append(form, back);
   back.classList.add('back-button');
@@ -566,6 +632,21 @@ function applyLanding(settings) {
   document.body.dataset.theme = settings.theme;
   const hero = $('.hero');
   hero.dataset.position = settings.position;
+  hero.dataset.mobilePosition = settings.mobile_position;
+  hero.dataset.layout = settings.layout;
+  deliveryNote = settings.delivery_note || '';
+  const banner = $('#store-announcement');
+  banner.textContent = settings.announcement;
+  banner.hidden = !settings.announcement;
+  $('#store-location').textContent = settings.location;
+  const contact = $('#store-contact');
+  contact.textContent = settings.contact;
+  contact.hidden = !settings.contact;
+  for (const logo of document.querySelectorAll('.storefront .brand img')) {
+    logo.alt = settings.brand_name;
+    if (settings.logo) logo.src = settings.logo;
+    else if (settings.brand_name !== 'Tuya Brand') logo.replaceWith(node('span',settings.brand_name,'brand-wordmark'));
+  }
   const heading = $('#hero-heading');
   if (settings.heading !== 'Монгол үндэсний хувцас') heading.textContent = settings.heading;
   $('#hero-description').textContent = settings.description;
@@ -615,6 +696,11 @@ if ('IntersectionObserver' in window) {
     topLink.hidden = entry.isIntersecting || entry.boundingClientRect.top > 0;
   }, {rootMargin:'-72px 0px 0px'});
   headerObserver.observe($('#hero-heading'));
+}
+if ('ResizeObserver' in window) {
+  const header = $('.site-header');
+  const resize = new ResizeObserver(() => document.body.style.setProperty('--header-offset',header.offsetHeight+'px'));
+  resize.observe(header);
 }
 updateBag();
 api('/api/storefront').then(applyLanding).catch(() => {});

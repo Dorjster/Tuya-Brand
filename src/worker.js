@@ -5,8 +5,8 @@ const maximumColors = 12;
 const uncategorized = 'Ангилалгүй';
 const themes = ['wine','ink','forest'];
 const positions = ['left','center','right'];
-const imageLimit = 600_000;
-const uploadLimit = 2_450_000;
+const imageLimit = 1_500_000;
+const uploadLimit = 6_050_000;
 const sessionLifetime = 8 * 3600;
 const photoTypes = {
   'image/jpeg': b => b[0] === 255 && b[1] === 216 && b[2] === 255,
@@ -69,15 +69,14 @@ function cookie(request, token, age) {
 }
 
 function adminCode(env) {
-  const code = env.SITE_OWNER_EMAIL ? env.ADMIN_PASSCODE : env.ADMIN_PASSWORD;
-  return typeof code === 'string' && (env.SITE_OWNER_EMAIL ? /^\d{4}$/.test(code) : code.length >= 16 && code.length <= 256)
-    ? code : null;
+  const code = env.ADMIN_PASSCODE;
+  return typeof code === 'string' && /^\d{4}$/.test(code) ? code : null;
 }
 
 async function adminSession(request, env) {
   const token = sessionToken(request);
   if (!token || !adminCode(env) || (env.SITE_OWNER_EMAIL && !siteOwner(request,env))) return false;
-  const gate = env.SITE_OWNER_EMAIL ? 'owner-code' : 'public-code';
+  const gate = env.SITE_OWNER_EMAIL ? 'owner-code' : 'public-pin';
   return Boolean(await env.DB.prepare('SELECT 1 FROM sessions WHERE token_hash = ? AND expires > ? AND gate = ?')
     .bind(hex(await digest(token)), Math.floor(Date.now()/1000), gate).first());
 }
@@ -119,19 +118,24 @@ async function login(request, env) {
   const now = Math.floor(Date.now()/1000);
   const slot = Math.floor(now/900);
   const key = hex(await digest(request.headers.get('CF-Connecting-IP') ?? 'local'));
-  const [, attempt] = await db.batch([
+  if (typeof passcode !== 'string' || !/^\d{4}$/.test(passcode)) fail(400,'4 оронтой PIN оруулна уу.');
+  const attempt = db.prepare(`INSERT INTO login_attempts VALUES (?, ?, 1)
+    ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN slot=excluded.slot THEN attempts+1 ELSE 1 END,
+    slot=excluded.slot
+    WHERE login_attempts.slot<>excluded.slot OR login_attempts.attempts < ?
+    RETURNING attempts`);
+  const [, perAddress, allAddresses] = await db.batch([
     db.prepare('DELETE FROM login_attempts WHERE slot < ?').bind(slot - 1),
-    db.prepare(`INSERT INTO login_attempts VALUES (?, ?, 1)
-      ON CONFLICT(key) DO UPDATE SET attempts = CASE WHEN slot = excluded.slot THEN attempts + 1 ELSE 1 END,
-      slot = excluded.slot RETURNING attempts`).bind(key, slot),
+    attempt.bind(key,slot,5),
+    attempt.bind('admin-pin-global',slot,12),
   ]);
-  if (attempt.results[0].attempts > 8) fail(429, 'Too many attempts. Try again in 15 minutes.');
-  if (!await sameSecret(typeof passcode === 'string' ? passcode : '', code)) fail(401, 'Админ код буруу байна.');
-  const gate = owner ? 'owner-code' : 'public-code';
+  if (!perAddress.results.length || !allAddresses.results.length) fail(429,'Оролдлогын хязгаарт хүрсэн байна. Түр хүлээгээд дахин оролдоно уу.');
+  if (!await sameSecret(passcode, code)) fail(401, 'Админ код буруу байна.');
+  const gate = owner ? 'owner-code' : 'public-pin';
   const token = hex(crypto.getRandomValues(new Uint8Array(32)));
   await db.batch([
     db.prepare('DELETE FROM sessions WHERE expires <= ?').bind(now),
-    db.prepare('DELETE FROM login_attempts WHERE key = ?').bind(key),
+    db.prepare('DELETE FROM login_attempts WHERE key IN (?, ?)').bind(key,'admin-pin-global'),
     db.prepare('INSERT INTO sessions (token_hash,expires,gate) VALUES (?,?,?)').bind(hex(await digest(token)), now + sessionLifetime, gate),
   ]);
   return json({ ok: true }, 200, { 'Set-Cookie': cookie(request, token, sessionLifetime) });
@@ -139,7 +143,7 @@ async function login(request, env) {
 
 async function products(db, admin) {
   const [{ results }, { results: photos }] = await db.batch([
-    db.prepare(`SELECT id,name,category,description,price,sale_price,stock,cover,colors_json${admin ? ',active,version,archived' : ''}
+    db.prepare(`SELECT id,name,category,description,price,sale_price,stock,cover,colors_json,sku,sizes_json,size_guide,material,care,material_photo${admin ? ',active,version,archived' : ''}
       FROM products ${admin ? '' : 'WHERE active = 1 AND archived = 0'} ORDER BY created_at DESC, id DESC`),
     db.prepare(`SELECT photos.id,product_id FROM photos JOIN products ON products.id = photos.product_id
       ${admin ? '' : 'WHERE products.active = 1 AND products.archived = 0'} ORDER BY position`),
@@ -149,9 +153,9 @@ async function products(db, admin) {
     if (!photosByProduct.has(photo.product_id)) photosByProduct.set(photo.product_id, []);
     photosByProduct.get(photo.product_id).push('/media/' + photo.id);
   }
-  return results.map(({cover, colors_json, ...product}) => {
+  return results.map(({cover, colors_json, sizes_json, ...product}) => {
     const images = photosByProduct.get(product.id) ?? [];
-    return { ...product, images: images.length ? images : cover ? [cover] : [], colors: JSON.parse(colors_json) };
+    return { ...product, images: images.length ? images : cover ? [cover] : [], colors: JSON.parse(colors_json), sizes: JSON.parse(sizes_json) };
   });
 }
 
@@ -193,7 +197,7 @@ async function readMultipart(request, limit, sizeMessage) {
 
 async function validatedPhoto(photo) {
   if (!(photo instanceof File) || photo.size > imageLimit || photo.size < 12 || !Object.hasOwn(photoTypes,photo.type)) {
-    fail(400,'Зураг JPEG, PNG эсвэл WebP форматтай, 600 КБ хүртэл хэмжээтэй байна.');
+    fail(400,'Зураг JPEG, PNG эсвэл WebP форматтай, 1.5 МБ хүртэл хэмжээтэй байна.');
   }
   const bytes = await photo.arrayBuffer();
   if (!photoTypes[photo.type](new Uint8Array(bytes))) fail(400,'Зураг уншигдсангүй.');
@@ -201,7 +205,7 @@ async function validatedPhoto(photo) {
 }
 
 async function saveProduct(request, db, id) {
-  const form = await readMultipart(request,uploadLimit,'600 КБ хүртэл хэмжээтэй 4 зураг сонгоно уу.');
+  const form = await readMultipart(request,uploadLimit,'1.5 МБ хүртэл хэмжээтэй 4 зураг сонгоно уу.');
   const price = integer(form.get('price'), 1, 999999999, 'price');
   const sale = form.get('sale_price');
   const values = [
@@ -221,7 +225,7 @@ async function saveProduct(request, db, id) {
   const version = id ? integer(form.get('version'), 1, Number.MAX_SAFE_INTEGER, 'product version') : null;
   const replace = uploads.length || form.get('clear_photos') === '1';
   // Old clients may omit the color field when editing an existing product.
-  const previous = id ? await db.prepare(`SELECT colors_json, cover,
+  const previous = id ? await db.prepare(`SELECT colors_json,sizes_json,sku,size_guide,material,care,material_photo,cover,
     (SELECT COUNT(*) FROM photos WHERE product_id=products.id) AS photo_count
     FROM products WHERE id=? AND version=? AND archived=0`).bind(id,version).first() : null;
   if (id && !previous) fail(409, 'Барааны мэдээлэл өөрчлөгдсөн байна. Жагсаалтыг шинэчилнэ үү.');
@@ -233,13 +237,32 @@ async function saveProduct(request, db, id) {
       color.photo = null;
     }
   }
-  values.push(JSON.stringify(colors));
+  let sizes;
+  try { sizes = JSON.parse(form.get('sizes') ?? previous?.sizes_json ?? '[]'); }
+  catch { fail(400,'Размерын мэдээллийг шалгана уу.'); }
+  if (!Array.isArray(sizes) || sizes.length > 16 || sizes.some(size=>typeof size!=='string'||!size.trim()||size.trim().length>24)) {
+    fail(400,'16 хүртэл размер оруулж болно. Размер бүр 24 хүртэл тэмдэгт байна.');
+  }
+  sizes = sizes.map(size=>size.trim());
+  if (new Set(sizes.map(size=>size.toLowerCase())).size!==sizes.length) fail(400,'Размер давхардаж байна.');
+  const photoInput = form.get('material_photo');
+  const retainedPhoto = !replace && previous?.material_photo != null ? previous.material_photo : null;
+  const materialPhoto = photoInput === '' ? null : photoInput == null ? retainedPhoto : integer(photoInput,0,3,'материалын зургийн дугаар');
+  if (materialPhoto !== null && materialPhoto >= photoCount) fail(400,'Материалын ойрын зургийг сонгоно уу.');
+  const sku = safeText(form.get('sku') ?? previous?.sku,64,'SKU');
+  values.push(JSON.stringify(colors),sku,JSON.stringify(sizes),
+    safeText(form.get('size_guide') ?? previous?.size_guide,1600,'размерын заавар'),
+    safeText(form.get('material') ?? previous?.material,280,'материал'),
+    safeText(form.get('care') ?? previous?.care,650,'арчилгаа'),materialPhoto);
+  if (sku && await db.prepare('SELECT 1 FROM products WHERE sku=? COLLATE NOCASE AND id<>?').bind(sku,productId).first()) {
+    fail(409,'SKU код өөр бараанд бүртгэлтэй байна.');
+  }
   const lock = crypto.randomUUID();
   const changes = id
-    ? db.prepare(`UPDATE products SET name=?,category=?,description=?,price=?,sale_price=?,stock=?,active=?,colors_json=?,
+    ? db.prepare(`UPDATE products SET name=?,category=?,description=?,price=?,sale_price=?,stock=?,active=?,colors_json=?,sku=?,sizes_json=?,size_guide=?,material=?,care=?,material_photo=?,
         cover=CASE WHEN ? THEN NULL ELSE cover END, version=version+1, write_key=? WHERE id=? AND version=? AND archived=0`)
       .bind(...values, Number(Boolean(replace)), lock, id, version)
-    : db.prepare('INSERT INTO products (name,category,description,price,sale_price,stock,active,colors_json,id,write_key) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    : db.prepare('INSERT INTO products (name,category,description,price,sale_price,stock,active,colors_json,sku,sizes_json,size_guide,material,care,material_photo,id,write_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .bind(...values, productId, lock);
   const batch = [changes, db.prepare(`INSERT OR IGNORE INTO product_categories (name)
     SELECT category FROM products WHERE id=? AND write_key=?`).bind(productId,lock)];
@@ -249,7 +272,12 @@ async function saveProduct(request, db, id) {
     uploads.forEach((photo, position) => batch.push(db.prepare(`INSERT INTO photos (id,product_id,position,type,bytes)
       SELECT ?,id,?,?,? FROM products WHERE id=? AND write_key=?`).bind(photo.id, position, photo.type, photo.bytes, productId, lock)));
   }
-  const [result] = await db.batch(batch);
+  let result;
+  try { [result] = await db.batch(batch); }
+  catch(error) {
+    if (String(error).includes('products.sku')) fail(409,'SKU код өөр бараанд бүртгэлтэй байна.');
+    throw error;
+  }
   if (!result.meta.changes) fail(409, 'This product changed since you opened it. Refresh the inventory and try again.');
   return json({ id: productId }, id ? 200 : 201);
 }
@@ -289,27 +317,59 @@ async function setProductArchive(request,db,id) {
   return json({ok:true});
 }
 
+async function deleteProduct(request,db,id) {
+  const {version} = await readJson(request);
+  const result = await db.prepare(`DELETE FROM products WHERE id=? AND archived=1 AND version=?
+    AND NOT EXISTS (SELECT 1 FROM order_items WHERE product_id=products.id)`)
+    .bind(id,integer(version,1,Number.MAX_SAFE_INTEGER,'хувилбар')).run();
+  if (!result.meta.changes) fail(409,'Захиалгын түүхтэй эсвэл мэдээлэл нь өөрчлөгдсөн барааг устгах боломжгүй.');
+  return json({ok:true});
+}
+
 async function storefrontSettings(db) {
-  const {custom_hero,...settings} = await db.prepare(`SELECT heading,description,action,alt,theme,position,version,
-    hero_bytes IS NOT NULL AS custom_hero FROM storefront_settings WHERE id=1`).first();
-  return {...settings, image:custom_hero ? '/storefront/hero?v=' + settings.version : null};
+  const {custom_hero,custom_logo,...settings} = await db.prepare(`SELECT s.heading,s.description,s.action,s.alt,s.theme,s.position,s.version,
+    s.brand_name,s.announcement,s.location,s.contact,s.delivery_note,s.layout,s.mobile_position,
+    s.hero_bytes IS NOT NULL AS custom_hero,l.bytes IS NOT NULL AS custom_logo
+    FROM storefront_settings s JOIN storefront_logo l ON l.id=s.id WHERE s.id=1`).first();
+  return {...settings,image:custom_hero ? '/storefront/hero?v=' + settings.version : null,
+    logo:custom_logo ? '/storefront/logo?v=' + settings.version : null};
 }
 
 async function saveStorefront(request,db) {
-  const form = await readMultipart(request,625000,'600 КБ хүртэл хэмжээтэй нүүр зураг сонгоно уу.');
+  const form = await readMultipart(request,3_050_000,'Нүүр зураг, лого тус бүр 1.5 МБ хүртэл байна.');
+  const current = await storefrontSettings(db);
   const theme = form.get('theme');
   const position = form.get('position');
-  if (!themes.includes(theme) || !positions.includes(position)) fail(400,'Нүүр хуудасны загвар, зургийн байрлалыг шалгана уу.');
+  const layout = form.get('layout') ?? current.layout;
+  const mobile = form.get('mobile_position') ?? current.mobile_position;
+  if (!themes.includes(theme) || !positions.includes(position) || !positions.includes(mobile) || !['overlay','split'].includes(layout)) {
+    fail(400,'Нүүр хуудасны загвар, зургийн байрлалыг шалгана уу.');
+  }
   const version = integer(form.get('version'),1,Number.MAX_SAFE_INTEGER,'хувилбар');
   const image = form.get('image');
+  const logoFile = form.get('logo');
   const photo = image == null ? null : await validatedPhoto(image);
+  const logo = logoFile == null ? null : await validatedPhoto(logoFile);
   const clear = Number(Boolean(photo) || form.get('remove_image') === '1');
-  const result = await db.prepare(`UPDATE storefront_settings SET heading=?,description=?,action=?,alt=?,theme=?,position=?,
-    hero_type=CASE WHEN ? THEN ? ELSE hero_type END,
-    hero_bytes=CASE WHEN ? THEN ? ELSE hero_bytes END,version=version+1 WHERE id=1 AND version=?`)
+  const lock = crypto.randomUUID();
+  const writes = [db.prepare(`UPDATE storefront_settings SET heading=?,description=?,action=?,alt=?,theme=?,position=?,
+    brand_name=?,announcement=?,location=?,contact=?,delivery_note=?,layout=?,mobile_position=?,
+    hero_type=CASE WHEN ? THEN ? ELSE hero_type END,hero_bytes=CASE WHEN ? THEN ? ELSE hero_bytes END,
+    version=version+1,write_key=? WHERE id=1 AND version=?`)
     .bind(safeText(form.get('heading'),90,'гарчиг',1),safeText(form.get('description'),240,'тайлбар'),
       safeText(form.get('action'),40,'товчны бичвэр',1),safeText(form.get('alt'),140,'зургийн тайлбар',1),theme,position,
-      clear,photo?.type ?? null,clear,photo?.bytes ?? null,version).run();
+      safeText(form.get('brand_name') ?? current.brand_name,65,'дэлгүүрийн нэр',1),
+      safeText(form.get('announcement') ?? current.announcement,160,'мэдэгдэл'),
+      safeText(form.get('location') ?? current.location,120,'байршил'),
+      safeText(form.get('contact') ?? current.contact,100,'холбоо барих'),
+      safeText(form.get('delivery_note') ?? current.delivery_note,500,'хүргэлтийн нөхцөл'), layout,mobile,
+      clear,photo?.type ?? null,clear,photo?.bytes ?? null,lock,version)];
+  if (logo || form.get('remove_logo') === '1') {
+    writes.push(db.prepare(`UPDATE storefront_logo SET type=?,bytes=? WHERE id=1
+      AND EXISTS(SELECT 1 FROM storefront_settings WHERE id=1 AND write_key=?)`)
+      .bind(logo?.type ?? null,logo?.bytes ?? null,lock));
+  }
+  const [result] = await db.batch(writes);
   if (!result.meta.changes) fail(409,'Нүүр хуудасны мэдээлэл өөрчлөгдсөн байна. Шинэчлээд дахин оролдоно уу.');
   return json(await storefrontSettings(db));
 }
@@ -340,24 +400,51 @@ async function placeOrder(request, db) {
     if (selected.size && [...selected.values()].reduce((a,b) => a + b, 0) !== quantity) {
       fail(400, 'Захиалгын өнгө болон тоог шалгана уу.');
     }
-    items.set(item.id, {quantity, price:integer(item.price, 1, 999999999, 'price'), selected});
+    const rawVariants = item.variants ?? [];
+    if (!Array.isArray(rawVariants) || rawVariants.length > 192) fail(400,'Размерын мэдээллийг шалгана уу.');
+    const pairs = new Set();
+    const variants = rawVariants.map(variant => {
+      const size = safeText(variant?.size,24,'размер',1);
+      const color = variant?.color ?? '';
+      const key = JSON.stringify([size,color]);
+      if (typeof color !== 'string' || (color && !idPattern.test(color)) || pairs.has(key)) fail(400,'Сонголтоо дахин шалгана уу.');
+      pairs.add(key);
+      return {size,color,quantity:integer(variant?.quantity,1,999,'тоо')};
+    });
+    if (variants.length && variants.reduce((n,variant)=>n+variant.quantity,0)!==quantity) fail(400,'Размерын тоог шалгана уу.');
+    items.set(item.id, {quantity, price:integer(item.price, 1, 999999999, 'price'), selected,variants});
   }
   const orderRef = input.id.toLowerCase();
   const existing = () => db.prepare('SELECT id FROM orders WHERE id=?').bind(orderRef).first();
   if (await existing()) return json({ id: orderRef });
   const ids = [...items.keys()];
-  const { results } = await db.prepare(`SELECT id,name,COALESCE(sale_price,price) AS price,stock,colors_json
+  const { results } = await db.prepare(`SELECT id,name,COALESCE(sale_price,price) AS price,stock,colors_json,sizes_json,version
     FROM products WHERE active=1 AND id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
   if (results.length !== ids.length || results.some(p => items.get(p.id).price !== p.price || items.get(p.id).quantity > p.stock)) {
     fail(409, 'A price or stock level changed. Review your bag and try again.');
   }
   const orderColors = new Map();
+  const orderVariants = new Map();
   for (const product of results) {
     const available = new Map(JSON.parse(product.colors_json).map(color => [color.id,color]));
     const selected = items.get(product.id).selected;
     if (Boolean(available.size) !== Boolean(selected.size) || [...selected.keys()].some(id => !available.has(id))) {
       fail(409, 'Сонгосон өнгө өөрчлөгдсөн байна. Сагсаа шинэчлээрэй.');
     }
+    const sizes = new Set(JSON.parse(product.sizes_json));
+    const {variants} = items.get(product.id);
+    if (Boolean(sizes.size) !== Boolean(variants.length) || variants.some(v=>!sizes.has(v.size) ||
+        (available.size ? !available.has(v.color) : v.color !== ''))) {
+      fail(409,'Сонгосон размер эсвэл өнгө өөрчлөгдсөн байна. Сагсаа шинэчлээрэй.');
+    }
+    if (variants.length && available.size) {
+      const counts = new Map();
+      for (const v of variants) counts.set(v.color,(counts.get(v.color) ?? 0)+v.quantity);
+      if (counts.size!==selected.size || [...counts].some(([id,count])=>selected.get(id)!==count)) {
+        fail(400,'Хэмжээ болон өнгөний тоог шалгана уу.');
+      }
+    }
+    orderVariants.set(product.id,variants.map(v=>({size:v.size,color:available.get(v.color)?.name ?? '',quantity:v.quantity})));
     orderColors.set(product.id, [...selected].map(([id,quantity]) => ({id, name:available.get(id).name, quantity})));
   }
   const slot = Math.floor(Date.now() / 900_000);
@@ -372,8 +459,8 @@ async function placeOrder(request, db) {
   const writes = [
     db.prepare('INSERT INTO orders (id,name,phone,fulfillment,address,notes) VALUES (?,?,?,?,?,?)')
       .bind(orderRef, name, phone, input.fulfillment, address, notes),
-    ...results.map(p => db.prepare('INSERT INTO order_items (order_id,product_id,name,quantity,unit_price,colors_json) VALUES (?,?,?,?,?,?)')
-      .bind(orderRef, p.id, p.name, items.get(p.id).quantity, p.price, JSON.stringify(orderColors.get(p.id)))),
+    ...results.map(p => db.prepare('INSERT INTO order_items (order_id,product_id,name,quantity,unit_price,colors_json,variants_json,inventory_version) VALUES (?,?,?,?,?,?,?,?)')
+      .bind(orderRef, p.id, p.name, items.get(p.id).quantity, p.price, JSON.stringify(orderColors.get(p.id)),JSON.stringify(orderVariants.get(p.id)),p.version)),
   ];
   try {
     await db.batch(writes);
@@ -388,14 +475,14 @@ async function placeOrder(request, db) {
 async function getOrders(db) {
   const [{results: orders}, {results: items}] = await db.batch([
     db.prepare("SELECT * FROM orders ORDER BY (status = 'placed') DESC, created_at DESC, id DESC LIMIT 100"),
-    db.prepare(`SELECT order_id,name,quantity,unit_price,colors_json FROM order_items WHERE order_id IN
+    db.prepare(`SELECT order_id,name,quantity,unit_price,colors_json,variants_json FROM order_items WHERE order_id IN
       (SELECT id FROM orders ORDER BY (status = 'placed') DESC, created_at DESC, id DESC LIMIT 100)`),
   ]);
   const grouped = new Map();
   for (const item of items) {
     if (!grouped.has(item.order_id)) grouped.set(item.order_id, []);
-    const {colors_json, ...details} = item;
-    grouped.get(item.order_id).push({...details, colors:JSON.parse(colors_json)});
+    const {colors_json,variants_json,...details} = item;
+    grouped.get(item.order_id).push({...details, colors:JSON.parse(colors_json),variants:JSON.parse(variants_json)});
   }
   return orders.map(order => ({...order, items: grouped.get(order.id) ?? []}));
 }
@@ -414,11 +501,13 @@ async function route(request, env) {
   if (path === '/api/products' && method === 'GET') return json(await products(db, false));
   if (path === '/api/orders' && method === 'POST') return placeOrder(request, db);
   if (path === '/api/storefront' && method === 'GET') return json(await storefrontSettings(db));
-  if (path === '/storefront/hero' && ['GET','HEAD'].includes(method)) {
-    const picture = await db.prepare('SELECT hero_type,hero_bytes FROM storefront_settings WHERE id=1').first();
-    if (!picture?.hero_bytes) fail(404,'Зураг олдсонгүй.');
-    return new Response(method === 'HEAD' ? null : new Uint8Array(picture.hero_bytes), {
-      headers:{'Content-Type':picture.hero_type,'Cache-Control':'no-cache'},
+  if (['/storefront/hero','/storefront/logo'].includes(path) && ['GET','HEAD'].includes(method)) {
+    const picture = await db.prepare(path === '/storefront/logo'
+      ? 'SELECT type,bytes FROM storefront_logo WHERE id=1'
+      : 'SELECT hero_type AS type,hero_bytes AS bytes FROM storefront_settings WHERE id=1').first();
+    if (!picture?.bytes) fail(404,'Зураг олдсонгүй.');
+    return new Response(method === 'HEAD' ? null : new Uint8Array(picture.bytes), {
+      headers:{'Content-Type':picture.type,'Cache-Control':'no-cache'},
     });
   }
   if (path === '/api/admin/sign-in' && method === 'GET') return json({
@@ -442,6 +531,7 @@ async function route(request, env) {
     const product = path.match(/^\/api\/admin\/products\/([a-z0-9-]{1,64})$/);
     if (product && method === 'POST') return saveProduct(request, db, product[1]);
     if (product && method === 'PATCH') return setProductArchive(request,db,product[1]);
+    if (product && method === 'DELETE') return deleteProduct(request,db,product[1]);
     if (path === '/api/admin/orders' && method === 'GET') return json(await getOrders(db));
     const order = path.match(/^\/api\/admin\/orders\/([a-f0-9-]{36})$/);
     if (order && method === 'PATCH') {

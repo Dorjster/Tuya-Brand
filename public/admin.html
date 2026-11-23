@@ -18,7 +18,7 @@
     <section class="panel login-panel" id="login-panel" hidden>
       <h1>Админ нэвтрэх</h1><p class="muted">Бараа, үлдэгдэл, захиалгаа удирдах хэсэг.</p>
       <form id="login" class="fields">
-        <label id="passcode-field">Админ код<input name="passcode" type="password" required minlength="16" maxlength="256" autocomplete="current-password"></label>
+        <label id="passcode-field">4 оронтой PIN<input name="passcode" type="password" inputmode="numeric" pattern="[0-9]{4}" required minlength="4" maxlength="4" autocomplete="current-password"></label>
         <p class="form-message" id="login-error" role="alert" hidden></p>
         <button class="button primary" type="submit">Нэвтрэх</button>
       </form>
@@ -48,6 +48,11 @@
             </ol>
             <a href="/TUYA_PRODUCT_IMPORT.md" download class="guide-download">Markdown загвар татах</a>
           </details>
+          <div class="admin-inventory-controls fields">
+            <label>Бараа хайх<input id="inventory-search" type="search" placeholder="Нэр, SKU эсвэл ангилал"></label>
+            <label>Төлөв<select id="inventory-state"><option value="all">Бүгд</option><option value="published">Нийтэлсэн</option><option value="draft">Ноорог</option></select></label>
+          </div>
+          <p class="muted admin-help">Архивласан бараа дэлгүүрээс хасагдана. Архиваас ноорог болгон сэргээж болно. Захиалгад орсон барааны түүх хадгалагдана.</p>
           <p id="inventory-status" class="muted" role="status"></p><div id="inventory-list"></div>
           <details class="admin-archive" id="archived-products" hidden>
             <summary>Архивласан бараа</summary><div id="archive-list"></div>
@@ -55,6 +60,7 @@
         </section>
         <section class="panel" id="categories" hidden>
           <div class="admin-toolbar"><h2>Барааны ангилал</h2></div>
+          <p class="muted admin-help">Жишээ нь «Дээл» эсвэл «Хантааз» гэж нэмнэ. Ангилал хасвал доторх бараа «Ангилалгүй» болно.</p>
           <form class="fields" id="category-form">
             <label>Шинэ ангилал<input name="name" maxlength="45" required></label>
             <button class="button primary" type="submit">Ангилал нэмэх</button>
@@ -64,9 +70,22 @@
         </section>
         <section class="panel" id="storefront" hidden>
           <div class="admin-toolbar"><h2>Нүүр хуудасны загвар</h2></div>
+          <p class="muted admin-help">Баруун талын загвараар харагдах байдлаа шалгаад хадгална. Лого эсвэл нүүр зураг сонгоогүй бол өмнөх зураг хэвээр үлдэнэ.</p>
           <p id="storefront-status" class="muted admin-view-status" role="status"></p>
           <form class="fields storefront-editor" id="storefront-form" hidden>
             <div class="storefront-editor-fields">
+              <fieldset class="admin-field-group"><legend>Дэлгүүрийн мэдээлэл</legend>
+                <p class="muted">Мэдэгдэл бичвэл дээд хэсэгт харагдана. Холбоо барих, байршил нь хуудасны доод хэсэгт гарна.</p>
+                <label>Дэлгүүрийн нэр<input name="brand_name" required maxlength="65"></label>
+                <label>Дээд мэдэгдэл<input name="announcement" maxlength="160" placeholder="Жишээ нь Шинэ цуглуулга худалдаанд гарлаа"></label>
+                <label>Байршил<input name="location" maxlength="120"></label>
+                <label>Холбоо барих<input name="contact" maxlength="100" placeholder="Утас, имэйл эсвэл сошиал хаяг"></label>
+                <label>Хүргэлтийн тайлбар<textarea name="delivery_note" maxlength="500" rows="2"></textarea></label>
+                <label>Дэлгүүрийн лого<input id="storefront-logo" type="file" accept="image/jpeg,image/png,image/webp"></label>
+                <label class="check-option"><input name="remove_logo" type="checkbox"> Үндсэн логог сэргээх</label>
+              </fieldset>
+              <fieldset class="admin-field-group"><legend>Нүүр хэсгийн зураг, бичвэр</legend>
+              <p class="muted">Хэвтээ HD зураг сонго. Хувцас тасарч харагдвал утас, компьютерийн зургийн төвийг тусад нь тохируул.</p>
               <label>Гарчиг<input name="heading" required maxlength="90"></label>
               <label>Товч тайлбар<textarea name="description" maxlength="240" rows="3"></textarea></label>
               <label>Товчны бичвэр<input name="action" required maxlength="40"></label>
@@ -75,18 +94,24 @@
                 <label>Өнгөний загвар<select name="theme"><option value="wine">Туяа · дарсны улаан</option><option value="ink">Шөнө · гүн хөх</option><option value="forest">Ой · гүн ногоон</option></select></label>
                 <label>Зургийн төв<select name="position"><option value="left">Зүүн</option><option value="center">Дунд</option><option value="right">Баруун</option></select></label>
               </div>
+              <div class="field-pair">
+                <label>Нүүр хэсгийн зохиомж<select name="layout"><option value="overlay">Зураг дээр бичвэртэй</option><option value="split">Зураг, бичвэр тусдаа</option></select></label>
+                <label>Утасны зургийн төв<select name="mobile_position"><option value="left">Зүүн</option><option value="center">Дунд</option><option value="right">Баруун</option></select></label>
+              </div>
               <label>Нүүр зураг<input id="storefront-image" type="file" accept="image/jpeg,image/png,image/webp"></label>
               <label class="check-option"><input name="remove_image" type="checkbox"> Үндсэн зургийг сэргээх</label>
+              </fieldset>
               <button class="button primary" type="submit">Нүүр хуудас хадгалах</button>
             </div>
             <div class="storefront-preview" id="storefront-preview" aria-label="Нүүр хуудасны урьдчилсан харагдац">
               <img alt="" id="storefront-preview-image">
-              <div><p id="storefront-preview-heading"></p><span id="storefront-preview-action"></span></div>
+              <div><img id="storefront-preview-logo" alt="" hidden><p id="storefront-preview-heading"></p><span id="storefront-preview-action"></span></div>
             </div>
           </form>
         </section>
         <section class="panel" id="orders" hidden>
           <div class="admin-toolbar"><h2>Захиалга</h2><button class="button secondary" id="refresh-orders" type="button">Шинэчлэх</button></div>
+          <p class="muted admin-help">Шинэ захиалга дээр сонгосон өнгө, размер, тоог шалгана. Цуцалбал авсан тоо үлдэгдэлд буцна.</p>
           <p id="orders-status" class="muted" role="status"></p><div id="order-list"></div>
         </section>
       </div>
@@ -101,17 +126,29 @@
           <label>Барааны Markdown файл<input id="product-import" type="file" accept=".md,text/markdown,text/plain"></label>
           <p class="muted import-message" id="import-status" role="status">Үүний дараа зургуудаа доороос нь сонгоно.</p>
         </details>
+        <p class="muted admin-help">Нэр, ангилал, үнэ, үлдэгдлээ бөглөнө. Нийтлэхээс өмнө «Дэлгүүрт харуулах»-ыг тэмдэглэнэ.</p>
         <label>Барааны нэр<input name="name" required maxlength="100"></label>
         <label>Ангилал<input name="category" required maxlength="45" list="admin-categories"><datalist id="admin-categories"></datalist></label>
         <label>Тайлбар<textarea name="description" maxlength="2000" rows="3"></textarea></label>
+        <fieldset class="admin-field-group">
+          <legend>Код, размер ба материал</legend>
+          <p class="muted">Размер шаардахгүй бараанд размерын талбарыг хоосон үлдээнэ. Материалын найрлагыг баталгаатай үед бичнэ.</p>
+          <label>SKU · Барааны код<input name="sku" maxlength="64" placeholder="Жишээ нь KH-RED-01"></label>
+          <label>Размерууд<input name="sizes" maxlength="420" placeholder="Жишээ нь S, M, L, XL"></label>
+          <label>Размерын заавар<textarea name="size_guide" maxlength="1600" rows="3" placeholder="M · Цээж 94–100 см&#10;L · Цээж 101–108 см"></textarea></label>
+          <label>Материал<textarea name="material" maxlength="280" rows="2"></textarea></label>
+          <label>Арчилгаа<textarea name="care" maxlength="650" rows="2"></textarea></label>
+        </fieldset>
         <div class="field-pair">
           <label>Үндсэн үнэ (₮)<input name="price" required type="number" inputmode="numeric" min="1" max="999999999" step="1"></label>
           <div class="admin-sale-field"><label>Хямдралын үнэ (₮, заавал биш)<input name="sale_price" type="number" inputmode="numeric" min="1" max="999999998" step="1"></label><button id="clear-sale" class="button secondary" type="button">Хямдрал арилгах</button></div>
         </div>
+        <p class="muted">Үлдэгдэл нь энэ барааны бүх размер, өнгөнд нийлсэн тоо.</p>
         <label>Үлдэгдэл тоо (ширхэг)<input name="stock" required placeholder="Жишээ нь 10" type="number" inputmode="numeric" min="0" max="999999" step="1"></label>
         <label>Барааны зураг<input id="photo-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-describedby="photo-help"></label>
-        <p class="muted" id="photo-help">JPEG, PNG, WebP форматаар 4 хүртэл зураг сонгоно. Шинэ зураг сонговол одоогийн зургуудыг солино.</p>
+        <p class="muted" id="photo-help">JPEG, PNG, WebP форматаар 4 хүртэл зураг сонгоно. Эхнийх нь нүүр зураг. Хээ, оёдол, ширхэгийг харуулсан ойрын зураг нэмээрэй. Шинэ зураг сонговол одоогийн зургуудыг солино.</p>
         <div id="photo-preview" class="preview-list"></div>
+        <label>Материалын ойрын зураг<select name="material_photo"><option value="">Сонгоогүй</option></select></label>
         <label class="check-option" id="clear-photos-label" hidden><input id="clear-photos" type="checkbox"> Одоогийн зургуудыг устгах</label>
         <fieldset class="product-colors">
           <legend>Боломжит өнгө</legend>
