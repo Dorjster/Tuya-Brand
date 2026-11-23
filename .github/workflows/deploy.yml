@@ -26,10 +26,10 @@ jobs:
       - run: npm run db:local
 
   deploy:
-    if: github.ref == 'refs/heads/main' && vars.CLOUDFLARE_D1_DATABASE_ID != ''
+    if: github.ref == 'refs/heads/main'
     needs: validate
     runs-on: ubuntu-latest
-    environment: production
+    environment: CLOUDFLARE_API_TOKEN
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_D1_DATABASE_ID: ${{ vars.CLOUDFLARE_D1_DATABASE_ID }}
