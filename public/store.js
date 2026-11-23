@@ -9,6 +9,7 @@ const productDialog = $('#product-dialog');
 const bagDialog = $('#bag-dialog');
 const grid = $('#product-grid');
 const status = $('#catalog-status');
+const categoryList = $('#categories');
 const bagContent = $('#bag-content');
 let products = [];
 let category = all;
@@ -104,15 +105,19 @@ function renderCatalog() {
   const categories = Array.from(new Set(products.map(p => p.category))).sort((a,b) => a.localeCompare(b));
   const categoryOptions = [[all,'Бүх бараа'], [sale,'Хямдрал'], [favorite,'Хадгалсан'], ...categories.map(value => ['category:' + value,value])];
   if (!categoryOptions.some(([value]) => value === category)) category = all;
-  $('#categories').replaceChildren(...categoryOptions.map(([value, title]) => {
+  const scrollOffset = categoryList.scrollLeft;
+  categoryList.replaceChildren(...categoryOptions.map(([value, title]) => {
     const button = action(title, 'category-button', () => {
       category = value;
       renderCatalog();
-      [...$('#categories').children].find(element => element.getAttribute('aria-pressed') === 'true')?.focus();
+      const active = categoryList.querySelector('[aria-pressed=true]');
+      active?.focus({ preventScroll: true });
     });
     button.setAttribute('aria-pressed', String(category === value));
     return button;
   }));
+  categoryList.scrollLeft = scrollOffset;
+  $('#catalog-title').textContent = categoryOptions.find(([value]) => value === category)[1];
   const query = $('#search').value.trim().toLowerCase();
   const sort = $('#sort').value;
   const list = products.filter(p => (
@@ -314,5 +319,12 @@ $('#bag-button').addEventListener('click', async () => {
     if (bagDialog.open) bagPanel('Таны сагс').append(node('p',error.message,'form-message'));
   }
 });
+const topLink = $('#back-to-top');
+if ('IntersectionObserver' in window) {
+  const headerObserver = new IntersectionObserver(([entry]) => {
+    topLink.hidden = entry.isIntersecting || entry.boundingClientRect.top > 0;
+  }, {rootMargin:'-72px 0px 0px'});
+  headerObserver.observe($('#hero-heading'));
+}
 updateBag();
 loadProducts().catch(error => { status.textContent = error.message; });

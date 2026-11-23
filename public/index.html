@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="mn">
+<html lang="mn" class="store-document">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,20 +10,20 @@
   <script src="/store.js" type="module"></script>
   <title>Tuya Brand — Онлайн дэлгүүр</title>
 </head>
-<body>
+<body class="storefront" id="top">
+  <a class="skip-link" href="#catalog">Барааны жагсаалт руу очих</a>
   <header class="site-header">
     <div class="shell header-inner">
-      <a class="brand" href="/" aria-label="Tuya Brand home"><img src="/images/tuya-logo.png" alt="Tuya Brand" width="750" height="173"></a>
-      <nav aria-label="Main navigation"><a href="#catalog" id="nav-shop">Дэлгүүр</a><a href="#catalog" id="sale-link">Хямдрал</a></nav>
+      <a class="brand" href="/" aria-label="Tuya Brand нүүр хуудас"><img src="/images/tuya-logo.png" alt="Tuya Brand" width="750" height="173"></a>
+      <nav aria-label="Үндсэн цэс"><a href="#catalog" id="nav-shop">Дэлгүүр</a><a href="#catalog" id="sale-link">Хямдрал</a></nav>
       <button id="bag-button" class="bag-button" type="button">Сагс <span id="bag-count">0</span></button>
     </div>
   </header>
   <main class="shell">
     <section class="hero" aria-labelledby="hero-heading">
       <div class="hero-copy">
-        <p class="eyebrow"><span></span> TUYA BRAND</p>
-        <h1 id="hero-heading">Танд таалагдах<br class="wide-only"> шинэ сонголт<span>.</span></h1>
-        <p>Өөртөө болон хайртай хүмүүстээ өдөр бүр хэрэглэх бараагаа сонгоорой.</p>
+        <h1 id="hero-heading">Өдөр бүрийн<br class="wide-only"> дуртай сонголт<span>.</span></h1>
+        <p>Өөртөө болон хайртай хүмүүстээ зориулсан барааг Tuya Brand-аас сонгоорой.</p>
         <a class="button primary hero-action" href="#catalog" id="shop-link">Бараа үзэх</a>
       </div>
       <div class="hero-media">
@@ -31,16 +31,20 @@
       </div>
     </section>
     <section class="catalog" id="catalog" aria-labelledby="catalog-title">
-      <div class="catalog-head"><h2 id="catalog-title">Бүх бараа</h2><label class="search"><span class="sr-only">Бараа хайх</span><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Бараа хайх"></label></div>
-      <div class="catalog-controls">
-        <div class="categories" id="categories" aria-label="Product categories"></div>
-        <label class="sorting"><span class="sr-only">Sort products</span><select id="sort"><option value="new">Шинэ бараа эхэнд</option><option value="low">Үнэ өсөхөөр</option><option value="high">Үнэ буурахаар</option><option value="name">Нэрээр эрэмбэлэх</option></select></label>
+      <h2 id="catalog-title">Бүх бараа</h2>
+      <div class="catalog-tools">
+        <div class="catalog-head">
+          <label class="search"><span class="sr-only">Бараа хайх</span><span class="search-icon" aria-hidden="true"></span><input id="search" type="search" placeholder="Бараа хайх"></label>
+          <label class="sorting"><span class="sr-only">Бараа эрэмбэлэх</span><select id="sort"><option value="new">Шинэ бараа эхэнд</option><option value="low">Үнэ өсөхөөр</option><option value="high">Үнэ буурахаар</option><option value="name">Нэрээр эрэмбэлэх</option></select></label>
+        </div>
+        <div class="categories" id="categories" aria-label="Барааны ангилал"></div>
       </div>
       <p id="catalog-status" class="catalog-status" role="status">Бараа ачаалж байна…</p>
       <div id="product-grid" class="product-grid"></div>
     </section>
   </main>
   <footer><div class="shell footer-inner"><a class="brand" href="/"><img src="/images/tuya-logo.png" alt="Tuya Brand" width="750" height="173"></a><span>Улаанбаатар, Монгол</span></div></footer>
+  <a class="back-to-top" id="back-to-top" href="#top" aria-label="Хуудасны эхэнд очих" hidden>↑</a>
   <dialog id="product-dialog" class="product-dialog" aria-labelledby="detail-title"><div id="detail-content"></div></dialog>
   <dialog id="bag-dialog" class="bag-dialog" aria-labelledby="bag-title"><div id="bag-content"></div></dialog>
   <template id="card-template">

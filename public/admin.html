@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="mn">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,40 +7,49 @@
   <link rel="icon" href="/images/favicon.png" type="image/png">
   <link rel="stylesheet" href="/theme.css">
   <script src="/admin.js" type="module"></script>
-  <title>Store management — Tuya Brand</title>
+  <title>Дэлгүүрийн удирдлага — Tuya Brand</title>
 </head>
 <body>
   <header class="site-header"><div class="shell header-inner">
     <a class="brand" href="/"><img src="/images/tuya-logo.png" alt="Tuya Brand" width="750" height="173"></a>
-    <a class="button secondary" href="/">View shop</a>
+    <a class="button secondary" href="/">Дэлгүүр үзэх</a>
   </div></header>
   <main class="shell admin-main">
     <section class="panel login-panel" id="login-panel" hidden>
-      <h1>Admin sign-in</h1><p class="muted">Manage products, stock, and orders.</p>
+      <h1>Админ нэвтрэх</h1><p class="muted">Бараа, үлдэгдэл, захиалгаа удирдах хэсэг.</p>
       <form id="login" class="fields">
-        <label>Username<input name="username" autocomplete="username" required maxlength="100"></label>
-        <label>Password<input name="password" type="password" autocomplete="current-password" required maxlength="256"></label>
+        <label>Хэрэглэгчийн нэр<input name="username" autocomplete="username" required maxlength="100"></label>
+        <label>Нууц үг<input name="password" type="password" autocomplete="current-password" required maxlength="256"></label>
         <p class="form-message" id="login-error" role="alert" hidden></p>
-        <button class="button primary" type="submit">Sign in</button>
+        <button class="button primary" type="submit">Нэвтрэх</button>
       </form>
     </section>
-    <p id="page-status" class="muted" role="status">Checking admin session…</p>
+    <p id="page-status" class="muted" role="status">Нэвтрэх эрх шалгаж байна…</p>
     <section id="dashboard" hidden>
-      <div class="admin-title"><h1>Store management</h1><p class="muted" id="signed-in"></p></div>
+      <div class="admin-title"><h1>Дэлгүүрийн удирдлага</h1><p class="muted" id="signed-in"></p></div>
       <div class="admin-toolbar">
-        <div class="admin-actions" aria-label="Manage store">
-          <button class="category-button" type="button" id="products-tab" aria-pressed="true">Products</button>
-          <button class="category-button" type="button" id="orders-tab" aria-pressed="false">Orders</button>
+        <div class="admin-actions" aria-label="Дэлгүүр удирдах">
+          <button class="category-button" type="button" id="products-tab" aria-pressed="true">Бараа</button>
+          <button class="category-button" type="button" id="orders-tab" aria-pressed="false">Захиалга</button>
         </div>
-        <button class="button secondary" type="button" id="logout">Sign out</button>
+        <button class="button secondary" type="button" id="logout">Гарах</button>
       </div>
       <div class="admin-layout">
         <section class="panel" id="inventory">
-          <div class="admin-toolbar"><h2>Inventory</h2><button class="button primary" id="new-product" type="button">Add product</button></div>
+          <div class="admin-toolbar"><h2>Барааны жагсаалт</h2><button class="button primary" id="new-product" type="button">Бараа нэмэх</button></div>
+          <details class="admin-guide">
+            <summary>Бараа хэрхэн нэмэх вэ?</summary>
+            <ol>
+              <li><strong>Бараа нэмэх</strong> товчийг дараад нэр, ангилал, тайлбараа оруулна.</li>
+              <li>Үндсэн үнэ, үлдэгдэл тоогоо оруулна. Хямдралтай бол үндсэн үнээс бага дүнг хямдралын үнэд бичнэ.</li>
+              <li>Утас эсвэл компьютерээсээ 4 хүртэл зураг сонгоно. Эхний зураг барааны нүүрэнд харагдана.</li>
+              <li>Шууд нийтлэх бол <strong>Дэлгүүрт харуулах</strong>-ыг идэвхжүүлээд <strong>Бараа хадгалах</strong>-ыг дарна. Тэмдэглээгүй бол ноорог болж хадгалагдана.</li>
+            </ol>
+          </details>
           <p id="inventory-status" class="muted" role="status"></p><div id="inventory-list"></div>
         </section>
         <section class="panel" id="orders" hidden>
-          <div class="admin-toolbar"><h2>Orders</h2><button class="button secondary" id="refresh-orders" type="button">Refresh</button></div>
+          <div class="admin-toolbar"><h2>Захиалга</h2><button class="button secondary" id="refresh-orders" type="button">Шинэчлэх</button></div>
           <p id="orders-status" class="muted" role="status"></p><div id="order-list"></div>
         </section>
       </div>
@@ -48,23 +57,23 @@
   </main>
   <dialog class="admin-dialog" id="editor" aria-labelledby="editor-title">
     <div class="dialog-panel">
-      <div class="dialog-head"><h2 id="editor-title">Add product</h2><button type="button" class="close-button" id="close-editor" aria-label="Close">×</button></div>
+      <div class="dialog-head"><h2 id="editor-title">Бараа нэмэх</h2><button type="button" class="close-button" id="close-editor" aria-label="Хаах">×</button></div>
       <form class="fields" id="product-form">
-        <label>Product name<input name="name" required maxlength="100"></label>
-        <label>Category<input name="category" required maxlength="45" list="admin-categories"><datalist id="admin-categories"></datalist></label>
-        <label>Description<textarea name="description" maxlength="2000" rows="3"></textarea></label>
+        <label>Барааны нэр<input name="name" required maxlength="100"></label>
+        <label>Ангилал<input name="category" required maxlength="45" list="admin-categories"><datalist id="admin-categories"></datalist></label>
+        <label>Тайлбар<textarea name="description" maxlength="2000" rows="3"></textarea></label>
         <div class="field-pair">
-          <label>Regular price (₮)<input name="price" required type="number" inputmode="numeric" min="1" max="999999999" step="1"></label>
-          <label>Sale price (₮, optional)<input name="sale_price" type="number" inputmode="numeric" min="1" max="999999998" step="1"></label>
+          <label>Үндсэн үнэ (₮)<input name="price" required type="number" inputmode="numeric" min="1" max="999999999" step="1"></label>
+          <label>Хямдралын үнэ (₮, заавал биш)<input name="sale_price" type="number" inputmode="numeric" min="1" max="999999998" step="1"></label>
         </div>
-        <label>Stock quantity<input name="stock" required type="number" inputmode="numeric" min="0" max="999999" step="1"></label>
-        <label>Product photos<input id="photo-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-describedby="photo-help"></label>
-        <p class="muted" id="photo-help">Choose up to four JPEG, PNG, or WebP images. New uploads replace the current photos.</p>
+        <label>Үлдэгдэл тоо<input name="stock" required type="number" inputmode="numeric" min="0" max="999999" step="1"></label>
+        <label>Барааны зураг<input id="photo-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-describedby="photo-help"></label>
+        <p class="muted" id="photo-help">JPEG, PNG, WebP форматаар 4 хүртэл зураг сонгоно. Шинэ зураг сонговол одоогийн зургуудыг солино.</p>
         <div id="photo-preview" class="preview-list"></div>
-        <label class="check-option" id="clear-photos-label" hidden><input id="clear-photos" type="checkbox"> Remove current photos</label>
-        <label class="check-option"><input id="product-active" type="checkbox"> Show on storefront</label>
+        <label class="check-option" id="clear-photos-label" hidden><input id="clear-photos" type="checkbox"> Одоогийн зургуудыг устгах</label>
+        <label class="check-option"><input id="product-active" type="checkbox"> Дэлгүүрт харуулах</label>
         <p class="form-message" id="editor-error" role="alert" hidden></p>
-        <button type="submit" class="button primary" id="save-product">Save product</button>
+        <button type="submit" class="button primary" id="save-product">Бараа хадгалах</button>
       </form>
     </div>
   </dialog>

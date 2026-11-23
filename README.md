@@ -25,11 +25,18 @@ Use a dedicated repository under the Dorjster account, with this project at the 
 2. Create a Cloudflare API token scoped to the account with Workers Scripts Edit and D1 Edit permissions. The token grants GitHub Actions deployment access.
 3. In the GitHub repository under **Settings → Secrets and variables → Actions**, add repository variables `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_D1_DATABASE_ID`. Add repository secrets `CLOUDFLARE_API_TOKEN` and `STORE_ADMIN_PASSWORD`. Use a unique 16–256 character admin password.
 4. Open the **Actions** tab, select **Validate and deploy store**, and run it on `main`. The production URL appears in the **Publish store** step after a successful deployment.
-5. Open `/admin` on the live URL and sign in as `dorjster`. Add products as drafts. Enter their category, description, price, stock and up to four photos. Enable **Show on storefront** when ready.
+5. Open `/admin` on the live URL and sign in as `dorjster`. Add products as drafts. Enter their category, description, price, stock and up to four photos. Enable **Дэлгүүрт харуулах** when ready.
+
+## Бараа нэмэх
+
+1. `/admin` руу орж, **Бараа → Бараа нэмэх**-ийг сонгоно.
+2. Нэр, ангилал, тайлбар, үндсэн үнэ болон үлдэгдэл тоогоо оруулна. Хямдралтай бол үндсэн үнээс бага үнийг **Хямдралын үнэ** талбарт бичнэ.
+3. JPEG, PNG, WebP форматаар 4 хүртэл зураг сонгоно. Эхний зураг жагсаалтад нүүр зураг болно.
+4. Нийтлэх бол **Дэлгүүрт харуулах**-ыг идэвхжүүлээд **Бараа хадгалах**-ыг дарна. Уг сонголтыг идэвхжүүлээгүй бол бараа ноорог хэвээр хадгалагдана.
 
 ## Store operations
 
 - Set an optional sale price below the regular price. The product will appear in the sale filter while it has a sale price.
-- Use **Show on storefront** to publish or unpublish a product. Product availability updates across devices. Photo uploads are resized in the browser and replace the current image set.
+- Use **Дэлгүүрт харуулах** to publish or unpublish a product. Product availability updates across devices. Photo uploads are resized in the browser and replace the current image set.
 - New orders reserve stock at submission. Mark an order fulfilled when it is complete. Cancelling an open order restores its items to inventory.
 - The admin account uses a persistent server-side session with automatic expiry. Set or change the password through the GitHub Actions secret and rerun deployment. Existing sessions expire after eight hours.

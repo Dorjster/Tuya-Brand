@@ -31,7 +31,7 @@ function signedOut(message = '') {
 }
 
 function report(error, destination) {
-  if (error.status === 401) signedOut('Your session ended. Sign in again.');
+  if (error.status === 401) signedOut('Нэвтрэх хугацаа дууссан. Дахин нэвтэрнэ үү.');
   else destination.textContent = error.message;
 }
 
@@ -40,15 +40,15 @@ async function signedIn(session) {
   $('#dashboard').hidden = false;
   $('#logout').hidden = Boolean(session.platformSession);
   setMessage('#page-status', '');
-  $('#signed-in').textContent = 'Signed in as ' + session.username;
+  $('#signed-in').textContent = 'Нэвтэрсэн хэрэглэгч · ' + session.username;
   await showTab('products');
 }
 
 async function refreshProducts(notice = '') {
-  inventoryStatus.textContent = 'Loading inventory…';
+  inventoryStatus.textContent = 'Барааны жагсаалт ачаалж байна…';
   try {
     inventory = await api('/api/admin/products');
-    inventoryStatus.textContent = notice || (inventory.length ? inventory.length + ' products' : 'Add your first product to start selling.');
+    inventoryStatus.textContent = notice || (inventory.length ? inventory.length + ' бараа' : 'Дэлгүүртээ эхний бараагаа нэмээрэй.');
     $('#admin-categories').replaceChildren(...[...new Set(inventory.map(p => p.category))].map(category => {
       const option = node('option');
       option.value = category;
@@ -65,8 +65,8 @@ async function refreshProducts(notice = '') {
       }
       const details = node('div', '', 'inventory-label');
       details.append(node('strong',product.name),node('p',
-        money(product.sale_price ?? product.price) + ' · ' + product.stock + ' in stock · ' + (product.active ? 'Published' : 'Draft'), 'muted'));
-      row.append(imageFrame,details,action('Edit', 'button secondary', () => openProduct(product)));
+        money(product.sale_price ?? product.price) + ' · ' + product.stock + ' ширхэг үлдсэн · ' + (product.active ? 'Нийтэлсэн' : 'Ноорог'), 'muted'));
+      row.append(imageFrame,details,action('Засах', 'button secondary', () => openProduct(product)));
       return row;
     }));
   } catch (error) {
@@ -81,7 +81,7 @@ function refreshPreviews() {
   photoPreview.replaceChildren(...images.map(source => {
     const image = node('img');
     image.src = source;
-    image.alt = 'Product photo preview';
+    image.alt = 'Барааны зургийн урьдчилсан харагдац';
     return image;
   }));
 }
@@ -91,7 +91,7 @@ function openProduct(product) {
   setMessage('#editor-error', '');
   form.reset();
   photoError = '';
-  $('#editor-title').textContent = product ? 'Edit product' : 'Add product';
+  $('#editor-title').textContent = product ? 'Бараа засах' : 'Бараа нэмэх';
   if (product) {
     for (const name of ['name','category','description','price','sale_price','stock']) form.elements[name].value = product[name] ?? '';
   } else {
@@ -105,9 +105,9 @@ function openProduct(product) {
 
 async function compressPhoto(file) {
   if (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size > 20_000_000) {
-    throw new Error('Choose a JPEG, PNG, or WebP photo under 20 MB.');
+    throw new Error('20 МБ-аас бага JPEG, PNG эсвэл WebP зураг сонгоно уу.');
   }
-  const image = await createImageBitmap(file).catch(() => { throw new Error('One photo could not be opened.'); });
+  const image = await createImageBitmap(file).catch(() => { throw new Error('Сонгосон зургуудын нэгийг нээж чадсангүй.'); });
   try {
     const canvas = node('canvas');
     const context = canvas.getContext('2d');
@@ -121,46 +121,46 @@ async function compressPhoto(file) {
       const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', .86));
       if (blob && blob.size <= 600000) return blob;
     }
-    throw new Error('One photo is too large after compression. Choose a smaller file.');
+    throw new Error('Зургийн хэмжээ хэт том байна. Жижиг зураг сонгоно уу.');
   } finally {
     image.close();
   }
 }
 
 async function refreshOrders(notice = '') {
-  ordersStatus.textContent = 'Loading orders…';
+  ordersStatus.textContent = 'Захиалга ачаалж байна…';
   try {
     const orders = await api('/api/admin/orders');
-    ordersStatus.textContent = notice || (orders.length ? 'Showing recent orders, with open orders first.' : 'No orders yet.');
+    ordersStatus.textContent = notice || (orders.length ? 'Сүүлийн захиалгууд. Шинэ захиалга эхэнд харагдана.' : 'Захиалга хараахан байхгүй байна.');
     $('#order-list').replaceChildren(...orders.map(order => {
       const card = node('article', '', 'order-card');
       const head = node('div','', 'order-head');
       const subtotal = order.items.reduce((total, item) => total + item.quantity * item.unit_price, 0);
       head.append(node('strong', order.id.slice(0,8).toUpperCase() + ' · ' + money(subtotal)),
-        node('span',order.status,'order-state'));
-      card.append(head,node('p', order.name + ' · ' + order.phone + ' · ' + order.fulfillment),node('p',
+        node('span', { placed:'Шинэ', fulfilled:'Биелсэн', cancelled:'Цуцалсан' }[order.status] || order.status,'order-state'));
+      card.append(head,node('p', order.name + ' · ' + order.phone + ' · ' + (order.fulfillment === 'delivery' ? 'Хүргэлт' : 'Очиж авах')),node('p',
         new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Ulaanbaatar'})
           .format(new Date(order.created_at.replace(' ','T')+'Z')) + ' ULAT','muted'));
       if (order.address) card.append(node('p',order.address,'muted'));
       if (order.notes) card.append(node('p',order.notes,'muted'));
       const list = node('ul');
-      for (const item of order.items) list.append(node('li', item.quantity + ' × ' + item.name + ' · ' + money(item.unit_price) + ' each'));
+      for (const item of order.items) list.append(node('li', item.quantity + ' × ' + item.name + ' · ' + money(item.unit_price) + ' / ш'));
       card.append(list);
       if (order.status === 'placed') {
         const buttons = node('div','','admin-actions');
         const change = async (status, target) => {
-          if (status === 'cancelled' && !confirm('Cancel this order and return the items to stock?')) return;
+          if (status === 'cancelled' && !confirm('Энэ захиалгыг цуцалж, барааг үлдэгдэлд буцаах уу?')) return;
           [...buttons.children].forEach(button => { button.disabled = true; });
           try {
             await api('/api/admin/orders/' + order.id,{method:'PATCH',json:{status}});
-            await refreshOrders(status === 'cancelled' ? 'Order cancelled. Stock restored.' : 'Order marked fulfilled.');
+            await refreshOrders(status === 'cancelled' ? 'Захиалга цуцлагдаж, бараа үлдэгдэлд буцлаа.' : 'Захиалгыг биелсэн гэж тэмдэглэлээ.');
           } catch (error) {
             if (error.status === 409) await refreshOrders(error.message);
             else { report(error, ordersStatus); [...buttons.children].forEach(button => { button.disabled = false; }); target.focus(); }
           }
         };
-        buttons.append(action('Mark fulfilled','button primary',event => change('fulfilled',event.currentTarget)),
-          action('Cancel order','button danger',event => change('cancelled',event.currentTarget)));
+        buttons.append(action('Биелсэн гэж тэмдэглэх','button primary',event => change('fulfilled',event.currentTarget)),
+          action('Захиалга цуцлах','button danger',event => change('cancelled',event.currentTarget)));
         card.append(buttons);
       }
       return card;
@@ -213,7 +213,7 @@ editor.addEventListener('close', () => {
   previewUrls = [];
 });
 photoInput.addEventListener('change', () => {
-  photoError = photoInput.files.length > 4 ? 'Choose up to four photos.' : '';
+  photoError = photoInput.files.length > 4 ? '4 хүртэл зураг сонгоно уу.' : '';
   if (photoError) photoInput.value = '';
   else if (photoInput.files.length) clearPhotos.checked = false;
   setMessage('#editor-error',photoError);
@@ -243,9 +243,9 @@ form.addEventListener('submit', async event => {
     for (const photo of photoInput.files) data.append('photos',await compressPhoto(photo),'product.jpg');
     await api('/api/admin/products' + (product ? '/' + product.id : ''),{method:'POST',body:data});
     editor.close();
-    await refreshProducts('Product saved.');
+    await refreshProducts('Бараа хадгалагдлаа.');
   } catch (error) {
-    if (error.status === 401) signedOut('Your session ended. Sign in again.');
+    if (error.status === 401) signedOut('Нэвтрэх хугацаа дууссан. Дахин нэвтэрнэ үү.');
     else setMessage('#editor-error',error.message);
   } finally {
     submit.disabled = close.disabled = false;
