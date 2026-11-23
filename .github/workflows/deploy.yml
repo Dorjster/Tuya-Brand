@@ -85,7 +85,6 @@ jobs:
       - name: Publish store
         env:
           STORE_ADMIN_PASSWORD: ${{ secrets.STORE_ADMIN_PASSWORD }}
-          STORE_ADMIN_PASSCODE: ${{ secrets.STORE_ADMIN_PASSCODE }}
         run: |
           umask 077
           secret_file=$(mktemp)
@@ -94,9 +93,7 @@ jobs:
           import { writeFileSync } from 'node:fs';
           const password = process.env.STORE_ADMIN_PASSWORD;
           if (!password || password.length < 16 || password.length > 256) throw new Error('Set STORE_ADMIN_PASSWORD to 16–256 characters.');
-          const code = process.env.STORE_ADMIN_PASSCODE;
-          if (!/^\d{4}$/.test(code || '')) throw new Error('Set STORE_ADMIN_PASSCODE to exactly four digits.');
-          writeFileSync(process.env.STORE_SECRET_FILE, JSON.stringify({ADMIN_PASSWORD: password, ADMIN_PASSCODE: code}));
+          writeFileSync(process.env.STORE_SECRET_FILE, JSON.stringify({ADMIN_PASSWORD: password}));
           JS
           npx wrangler deploy --secrets-file "$secret_file"
       - name: Verify the published store
@@ -108,14 +105,17 @@ jobs:
           const base = 'https://' + name + '.' + process.env.WORKERS_ACCOUNT_SUBDOMAIN + '.workers.dev';
 
           async function verify() {
-            const [home, products, signIn, inventory] = await Promise.all([
-              '/', '/api/products', '/api/admin/sign-in', '/api/admin/products',
+            const [home, products, signIn, inventory, storefront, samples] = await Promise.all([
+              '/', '/api/products', '/api/admin/sign-in', '/api/admin/products', '/api/storefront', '/collection-samples.json',
             ].map(path => fetch(base + path, { signal: AbortSignal.timeout(12000) })));
 
-            if (!home.ok || !(await home.text()).includes('Tuya Brand')) throw new Error('Storefront HTTP ' + home.status);
+            const markup = await home.text();
+            if (!home.ok || !markup.includes('Tuya Brand') || !markup.includes('filter-dialog')) throw new Error('Storefront HTTP ' + home.status);
             if (!products.ok || !Array.isArray(await products.json())) throw new Error('Catalog HTTP ' + products.status);
             if (!signIn.ok || (await signIn.json()).passcode !== true) throw new Error('Admin PIN check failed');
             if (inventory.status !== 401) throw new Error('Admin inventory requires authentication');
+            if (!storefront.ok || !(await storefront.json()).theme) throw new Error('Storefront settings HTTP ' + storefront.status);
+            if (!samples.ok || new Set((await samples.json()).map(product => product.category)).size < 4) throw new Error('Sample catalog is missing its product types');
           }
 
           for (let attempt = 0; attempt < 8; attempt++) {

@@ -2,6 +2,9 @@ const tokenPattern = /^[a-f0-9]{64}$/;
 const idPattern = /^[a-z0-9-]{1,64}$/;
 const maximumStock = 999999;
 const maximumColors = 12;
+const uncategorized = 'Ангилалгүй';
+const themes = ['wine','ink','forest'];
+const positions = ['left','center','right'];
 const imageLimit = 600_000;
 const uploadLimit = 2_450_000;
 const sessionLifetime = 8 * 3600;
@@ -65,14 +68,16 @@ function cookie(request, token, age) {
   return 'store_session=' + token + '; Max-Age=' + age + '; Path=/; HttpOnly; SameSite=Strict' + secure;
 }
 
-function passcodeEnabled(env) {
-  return /^\d{4}$/.test(env.ADMIN_PASSCODE ?? '');
+function adminCode(env) {
+  const code = env.SITE_OWNER_EMAIL ? env.ADMIN_PASSCODE : env.ADMIN_PASSWORD;
+  return typeof code === 'string' && (env.SITE_OWNER_EMAIL ? /^\d{4}$/.test(code) : code.length >= 16 && code.length <= 256)
+    ? code : null;
 }
 
 async function adminSession(request, env) {
   const token = sessionToken(request);
-  if (!token || (env.SITE_OWNER_EMAIL && (!siteOwner(request,env) || !passcodeEnabled(env)))) return false;
-  const gate = env.SITE_OWNER_EMAIL ? 'owner-code' : passcodeEnabled(env) ? 'password-code' : 'password';
+  if (!token || !adminCode(env) || (env.SITE_OWNER_EMAIL && !siteOwner(request,env))) return false;
+  const gate = env.SITE_OWNER_EMAIL ? 'owner-code' : 'public-code';
   return Boolean(await env.DB.prepare('SELECT 1 FROM sessions WHERE token_hash = ? AND expires > ? AND gate = ?')
     .bind(hex(await digest(token)), Math.floor(Date.now()/1000), gate).first());
 }
@@ -106,12 +111,10 @@ async function readJson(request) {
 
 async function login(request, env) {
   const owner = siteOwner(request,env);
-  const requiresPasscode = Boolean(env.SITE_OWNER_EMAIL) || passcodeEnabled(env);
   if (env.SITE_OWNER_EMAIL && !owner) fail(403, 'Админ хэсэгт эзэмшигчийн бүртгэлээр нэвтэрнэ үү.');
-  if ((requiresPasscode && !passcodeEnabled(env)) || (!owner && (!env.ADMIN_PASSWORD || env.ADMIN_PASSWORD.length < 16))) {
-    fail(503, 'Админ нэвтрэх тохиргоо дутуу байна.');
-  }
-  const { username, password, passcode } = await readJson(request);
+  const code = adminCode(env);
+  if (!code) fail(503, 'Админ нэвтрэх тохиргоо дутуу байна.');
+  const { passcode } = await readJson(request);
   const db = env.DB;
   const now = Math.floor(Date.now()/1000);
   const slot = Math.floor(now/900);
@@ -123,13 +126,8 @@ async function login(request, env) {
       slot = excluded.slot RETURNING attempts`).bind(key, slot),
   ]);
   if (attempt.results[0].attempts > 8) fail(429, 'Too many attempts. Try again in 15 minutes.');
-  const validCode = !requiresPasscode || await sameSecret(typeof passcode === 'string' ? passcode : '', env.ADMIN_PASSCODE);
-  const validPassword = owner || await sameSecret(typeof password === 'string' ? password : '', env.ADMIN_PASSWORD);
-  const validUser = owner || (typeof username === 'string' && username.trim().toLowerCase() === (env.ADMIN_USERNAME || 'dorjster').toLowerCase());
-  if (!validCode || !validPassword || !validUser) {
-    fail(401, owner ? 'Админ PIN буруу байна.' : 'Нэвтрэх мэдээлэл буруу байна.');
-  }
-  const gate = owner ? 'owner-code' : requiresPasscode ? 'password-code' : 'password';
+  if (!await sameSecret(typeof passcode === 'string' ? passcode : '', code)) fail(401, 'Админ код буруу байна.');
+  const gate = owner ? 'owner-code' : 'public-code';
   const token = hex(crypto.getRandomValues(new Uint8Array(32)));
   await db.batch([
     db.prepare('DELETE FROM sessions WHERE expires <= ?').bind(now),
@@ -141,10 +139,10 @@ async function login(request, env) {
 
 async function products(db, admin) {
   const [{ results }, { results: photos }] = await db.batch([
-    db.prepare(`SELECT id,name,category,description,price,sale_price,stock,cover,colors_json${admin ? ',active,version' : ''}
-      FROM products ${admin ? '' : 'WHERE active = 1'} ORDER BY created_at DESC, id DESC`),
+    db.prepare(`SELECT id,name,category,description,price,sale_price,stock,cover,colors_json${admin ? ',active,version,archived' : ''}
+      FROM products ${admin ? '' : 'WHERE active = 1 AND archived = 0'} ORDER BY created_at DESC, id DESC`),
     db.prepare(`SELECT photos.id,product_id FROM photos JOIN products ON products.id = photos.product_id
-      ${admin ? '' : 'WHERE products.active = 1'} ORDER BY position`),
+      ${admin ? '' : 'WHERE products.active = 1 AND products.archived = 0'} ORDER BY position`),
   ]);
   const photosByProduct = new Map();
   for (const photo of photos) {
@@ -173,24 +171,37 @@ function readProductColors(raw) {
   });
 }
 
-async function saveProduct(request, db, id) {
+async function readMultipart(request, limit, sizeMessage) {
   if (!request.headers.get('Content-Type')?.startsWith('multipart/form-data;')) fail(415, 'Send product form data.');
-  if (Number(request.headers.get('Content-Length')) > uploadLimit || !request.body) {
-    fail(413, 'Choose up to four photos, each under 600 KB.');
+  if (Number(request.headers.get('Content-Length')) > limit || !request.body) {
+    fail(413,sizeMessage);
   }
   let uploadedBytes = 0;
   const limitedBody = request.body.pipeThrough(new TransformStream({
     transform(chunk, controller) {
       uploadedBytes += chunk.byteLength;
-      if (uploadedBytes > uploadLimit) fail(413, 'Choose up to four photos, each under 600 KB.');
+      if (uploadedBytes > limit) fail(413,sizeMessage);
       controller.enqueue(chunk);
     },
   }));
-  const form = await new Response(limitedBody, {headers: {'Content-Type': request.headers.get('Content-Type')}})
+  return new Response(limitedBody, {headers: {'Content-Type': request.headers.get('Content-Type')}})
     .formData().catch(error => {
       if (error instanceof RequestError) throw error;
       fail(400, 'Invalid product form data.');
     });
+}
+
+async function validatedPhoto(photo) {
+  if (!(photo instanceof File) || photo.size > imageLimit || photo.size < 12 || !Object.hasOwn(photoTypes,photo.type)) {
+    fail(400,'Зураг JPEG, PNG эсвэл WebP форматтай, 600 КБ хүртэл хэмжээтэй байна.');
+  }
+  const bytes = await photo.arrayBuffer();
+  if (!photoTypes[photo.type](new Uint8Array(bytes))) fail(400,'Зураг уншигдсангүй.');
+  return {type:photo.type,bytes};
+}
+
+async function saveProduct(request, db, id) {
+  const form = await readMultipart(request,uploadLimit,'600 КБ хүртэл хэмжээтэй 4 зураг сонгоно уу.');
   const price = integer(form.get('price'), 1, 999999999, 'price');
   const sale = form.get('sale_price');
   const values = [
@@ -205,21 +216,14 @@ async function saveProduct(request, db, id) {
   const photos = form.getAll('photos');
   if (photos.length > 4) fail(400, 'Choose up to four photos.');
   const uploads = [];
-  for (const photo of photos) {
-    if (!(photo instanceof File) || photo.size > imageLimit || photo.size < 12 || !Object.hasOwn(photoTypes, photo.type)) {
-      fail(400, 'Photos must be JPEG, PNG, or WebP and up to 600 KB each.');
-    }
-    const bytes = await photo.arrayBuffer();
-    if (!photoTypes[photo.type](new Uint8Array(bytes))) fail(400, 'One photo could not be read.');
-    uploads.push({ id: crypto.randomUUID(), type: photo.type, bytes });
-  }
+  for (const photo of photos) uploads.push({id:crypto.randomUUID(), ...await validatedPhoto(photo)});
   const productId = id || crypto.randomUUID();
   const version = id ? integer(form.get('version'), 1, Number.MAX_SAFE_INTEGER, 'product version') : null;
   const replace = uploads.length || form.get('clear_photos') === '1';
   // Old clients may omit the color field when editing an existing product.
   const previous = id ? await db.prepare(`SELECT colors_json, cover,
     (SELECT COUNT(*) FROM photos WHERE product_id=products.id) AS photo_count
-    FROM products WHERE id=? AND version=?`).bind(id,version).first() : null;
+    FROM products WHERE id=? AND version=? AND archived=0`).bind(id,version).first() : null;
   if (id && !previous) fail(409, 'Барааны мэдээлэл өөрчлөгдсөн байна. Жагсаалтыг шинэчилнэ үү.');
   const photoCount = replace ? uploads.length : previous?.photo_count || Number(Boolean(previous?.cover));
   const colors = readProductColors(form.get('colors') ?? previous?.colors_json ?? '[]');
@@ -233,11 +237,12 @@ async function saveProduct(request, db, id) {
   const lock = crypto.randomUUID();
   const changes = id
     ? db.prepare(`UPDATE products SET name=?,category=?,description=?,price=?,sale_price=?,stock=?,active=?,colors_json=?,
-        cover=CASE WHEN ? THEN NULL ELSE cover END, version=version+1, write_key=? WHERE id=? AND version=?`)
+        cover=CASE WHEN ? THEN NULL ELSE cover END, version=version+1, write_key=? WHERE id=? AND version=? AND archived=0`)
       .bind(...values, Number(Boolean(replace)), lock, id, version)
     : db.prepare('INSERT INTO products (name,category,description,price,sale_price,stock,active,colors_json,id,write_key) VALUES (?,?,?,?,?,?,?,?,?,?)')
       .bind(...values, productId, lock);
-  const batch = [changes];
+  const batch = [changes, db.prepare(`INSERT OR IGNORE INTO product_categories (name)
+    SELECT category FROM products WHERE id=? AND write_key=?`).bind(productId,lock)];
   if (replace) {
     batch.push(db.prepare('DELETE FROM photos WHERE product_id IN (SELECT id FROM products WHERE id=? AND write_key=?)')
       .bind(productId, lock));
@@ -247,6 +252,66 @@ async function saveProduct(request, db, id) {
   const [result] = await db.batch(batch);
   if (!result.meta.changes) fail(409, 'This product changed since you opened it. Refresh the inventory and try again.');
   return json({ id: productId }, id ? 200 : 201);
+}
+
+async function categoryList(db) {
+  const {results} = await db.prepare(`SELECT c.name,COUNT(p.id) AS product_count FROM product_categories AS c
+    LEFT JOIN products AS p ON p.category=c.name AND p.archived=0 GROUP BY c.name ORDER BY c.name`).all();
+  return results;
+}
+
+async function addCategory(request,db) {
+  const {name} = await readJson(request);
+  const category = safeText(name,45,'ангилал',1);
+  const result = await db.prepare('INSERT OR IGNORE INTO product_categories (name) VALUES (?)').bind(category).run();
+  if (!result.meta.changes) fail(409,'Энэ ангилал бүртгэлтэй байна.');
+  return json({name:category},201);
+}
+
+async function removeCategory(request,db) {
+  const {name} = await readJson(request);
+  const category = safeText(name,45,'ангилал',1);
+  if (category === uncategorized) fail(400,'Үндсэн ангиллыг хасах боломжгүй.');
+  await db.batch([
+    db.prepare('UPDATE products SET category=?,version=version+1 WHERE category=?').bind(uncategorized,category),
+    db.prepare('DELETE FROM product_categories WHERE name=?').bind(category),
+  ]);
+  return json({ok:true});
+}
+
+async function setProductArchive(request,db,id) {
+  const {archived,version} = await readJson(request);
+  if (typeof archived !== 'boolean') fail(400,'Барааны төлөвийг шалгана уу.');
+  const result = await db.prepare(`UPDATE products SET archived=?,active=0,version=version+1
+    WHERE id=? AND version=? AND archived<>?`)
+    .bind(Number(archived),id,integer(version,1,Number.MAX_SAFE_INTEGER,'хувилбар'),Number(archived)).run();
+  if (!result.meta.changes) fail(409,'Барааны мэдээлэл өөрчлөгдсөн байна. Жагсаалтыг шинэчилнэ үү.');
+  return json({ok:true});
+}
+
+async function storefrontSettings(db) {
+  const {custom_hero,...settings} = await db.prepare(`SELECT heading,description,action,alt,theme,position,version,
+    hero_bytes IS NOT NULL AS custom_hero FROM storefront_settings WHERE id=1`).first();
+  return {...settings, image:custom_hero ? '/storefront/hero?v=' + settings.version : null};
+}
+
+async function saveStorefront(request,db) {
+  const form = await readMultipart(request,625000,'600 КБ хүртэл хэмжээтэй нүүр зураг сонгоно уу.');
+  const theme = form.get('theme');
+  const position = form.get('position');
+  if (!themes.includes(theme) || !positions.includes(position)) fail(400,'Нүүр хуудасны загвар, зургийн байрлалыг шалгана уу.');
+  const version = integer(form.get('version'),1,Number.MAX_SAFE_INTEGER,'хувилбар');
+  const image = form.get('image');
+  const photo = image == null ? null : await validatedPhoto(image);
+  const clear = Number(Boolean(photo) || form.get('remove_image') === '1');
+  const result = await db.prepare(`UPDATE storefront_settings SET heading=?,description=?,action=?,alt=?,theme=?,position=?,
+    hero_type=CASE WHEN ? THEN ? ELSE hero_type END,
+    hero_bytes=CASE WHEN ? THEN ? ELSE hero_bytes END,version=version+1 WHERE id=1 AND version=?`)
+    .bind(safeText(form.get('heading'),90,'гарчиг',1),safeText(form.get('description'),240,'тайлбар'),
+      safeText(form.get('action'),40,'товчны бичвэр',1),safeText(form.get('alt'),140,'зургийн тайлбар',1),theme,position,
+      clear,photo?.type ?? null,clear,photo?.bytes ?? null,version).run();
+  if (!result.meta.changes) fail(409,'Нүүр хуудасны мэдээлэл өөрчлөгдсөн байна. Шинэчлээд дахин оролдоно уу.');
+  return json(await storefrontSettings(db));
 }
 
 async function placeOrder(request, db) {
@@ -348,8 +413,16 @@ async function route(request, env) {
   if (!['GET','HEAD'].includes(method) && request.headers.get('Origin') !== url.origin) fail(403, 'Invalid request origin.');
   if (path === '/api/products' && method === 'GET') return json(await products(db, false));
   if (path === '/api/orders' && method === 'POST') return placeOrder(request, db);
+  if (path === '/api/storefront' && method === 'GET') return json(await storefrontSettings(db));
+  if (path === '/storefront/hero' && ['GET','HEAD'].includes(method)) {
+    const picture = await db.prepare('SELECT hero_type,hero_bytes FROM storefront_settings WHERE id=1').first();
+    if (!picture?.hero_bytes) fail(404,'Зураг олдсонгүй.');
+    return new Response(method === 'HEAD' ? null : new Uint8Array(picture.hero_bytes), {
+      headers:{'Content-Type':picture.hero_type,'Cache-Control':'no-cache'},
+    });
+  }
   if (path === '/api/admin/sign-in' && method === 'GET') return json({
-    owner:siteOwner(request,env), passcode:Boolean(env.SITE_OWNER_EMAIL) || passcodeEnabled(env),
+    owner:siteOwner(request,env), passcode:true,
   });
   if (path === '/api/admin/login' && method === 'POST') return login(request, env);
   if (path.startsWith('/api/admin/')) {
@@ -360,10 +433,15 @@ async function route(request, env) {
       await db.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(hex(await digest(sessionToken(request)))).run();
       return json({ok: true}, 200, {'Set-Cookie': cookie(request, '', 0)});
     }
+    if (path === '/api/admin/storefront' && method === 'POST') return saveStorefront(request,db);
+    if (path === '/api/admin/categories' && method === 'GET') return json(await categoryList(db));
+    if (path === '/api/admin/categories' && method === 'POST') return addCategory(request,db);
+    if (path === '/api/admin/categories' && method === 'DELETE') return removeCategory(request,db);
     if (path === '/api/admin/products' && method === 'GET') return json(await products(db, true));
     if (path === '/api/admin/products' && method === 'POST') return saveProduct(request, db, null);
     const product = path.match(/^\/api\/admin\/products\/([a-z0-9-]{1,64})$/);
     if (product && method === 'POST') return saveProduct(request, db, product[1]);
+    if (product && method === 'PATCH') return setProductArchive(request,db,product[1]);
     if (path === '/api/admin/orders' && method === 'GET') return json(await getOrders(db));
     const order = path.match(/^\/api\/admin\/orders\/([a-f0-9-]{36})$/);
     if (order && method === 'PATCH') {

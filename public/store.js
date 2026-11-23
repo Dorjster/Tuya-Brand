@@ -13,6 +13,9 @@ const categoryList = $('#categories');
 const bagContent = $('#bag-content');
 let products = [];
 let category = all;
+const filterDialog = $('#filter-dialog');
+const filterForm = $('#filter-form');
+let filters = {type:'',minPrice:null,maxPrice:null};
 let loaded = false;
 let toastTimer;
 let orderKey;
@@ -26,6 +29,12 @@ const quantityInBag = id => Object.entries(bag)
   .reduce((total,[key,quantity]) => total + (key === id || key.startsWith(id + '~') ? quantity : 0),0);
 const currentPrice = product => product.sale_price ?? product.price;
 const stockText = product => product.sample ? 'Жишээ бараа' : product.stock ? product.stock + ' ширхэг байна' : 'Дууссан';
+const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+function displayedVariant(product, color) {
+  if (!product.sample || color?.photo == null) return product;
+  return products.find(entry => entry.sample && entry.images[0] === product.images[color.photo]) ?? product;
+}
 
 function updateBag() {
   try { localStorage.setItem('tuya_bag', JSON.stringify(bag)); } catch {}
@@ -55,99 +64,152 @@ function addProduct(product, color) {
   toast(product.name + (color ? ' · ' + color.name : '') + ' сагсанд нэмэгдлээ.');
 }
 
-function showDetail(product) {
-  const panel = node('div', '', 'dialog-panel');
-  const head = node('div', '', 'dialog-head');
-  const title = node('h2', product.name);
-  title.id = 'detail-title';
-  head.append(title, closeButton(productDialog));
-  const columns = node('div', '', 'detail-grid');
-  const gallery = node('div');
-  const imageFrame = node('div', '', 'detail-image');
-  if (product.images.length) {
-    product.images.forEach((source, index) => {
-      const image = node('img');
-      image.src = source;
-      image.alt = product.name + ' · зураг ' + (index + 1);
-      if (index) image.loading = 'lazy';
-      imageFrame.append(image);
-    });
-  } else {
-    imageFrame.append(node('span', 'Зураг удахгүй нэмэгдэнэ', 'no-image'));
-  }
-  gallery.append(imageFrame);
-  const showPhoto = index => imageFrame.scrollTo({
-    left: index * imageFrame.clientWidth,
-    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+function createProductGallery(product) {
+  const gallery = node('div', '', 'detail-gallery');
+  const stage = node('div', '', 'detail-stage');
+  const frame = node('div', '', 'detail-image');
+  const photos = product.images;
+  const images = photos.map((source, index) => {
+    const image = node('img');
+    image.src = source;
+    image.alt = product.name + ' · зураг ' + (index + 1);
+    if (index) image.loading = 'lazy';
+    const slide = node('div', '', 'detail-slide');
+    slide.append(image);
+    return slide;
   });
-  if (product.images.length > 1) {
-    imageFrame.tabIndex = 0;
-    imageFrame.setAttribute('aria-label', 'Барааны зургийн цомог');
-    const thumbnails = node('div', '', 'photo-thumbs');
-    const updateSelection = index => {
-      for (const [i, button] of [...thumbnails.children].entries()) {
-        button.setAttribute('aria-pressed', String(i === index));
-      }
-    };
-    product.images.forEach((source, index) => {
-      const thumbnail = action('', '', () => showPhoto(index));
-      thumbnail.setAttribute('aria-label', 'Зураг харуулах ' + (index + 1));
-      const preview = node('img');
-      preview.alt = '';
-      preview.src = source;
-      thumbnail.append(preview);
-      thumbnails.append(thumbnail);
+  let active = 0;
+  frame.append(...images);
+  stage.append(frame);
+  gallery.append(stage);
+  if (!photos.length) {
+    frame.append(node('span', 'Зураг удахгүй нэмэгдэнэ', 'no-image'));
+    return { gallery, showPhoto: () => {} };
+  }
+
+  const count = node('span', '', 'gallery-count');
+  const controls = node('div', '', 'gallery-tools');
+  const zoom = action('Томруулах', 'gallery-control', () => {
+    const expanded = gallery.classList.toggle('is-zoomed');
+    zoom.setAttribute('aria-pressed', String(expanded));
+  });
+  zoom.setAttribute('aria-pressed','false');
+  controls.append(zoom);
+  stage.append(count,controls);
+
+  const thumbs = node('div', '', 'photo-thumbs');
+  const previous = action('‹', 'gallery-control gallery-prev', () => showPhoto(active - 1));
+  previous.setAttribute('aria-label','Өмнөх зураг');
+  const next = action('›', 'gallery-control gallery-next', () => showPhoto(active + 1));
+  next.setAttribute('aria-label','Дараагийн зураг');
+  const thumbnails = photos.length > 1 ? photos.map((source, index) => {
+    const button = action('', '', () => showPhoto(index));
+    button.setAttribute('aria-label','Зураг харуулах ' + (index + 1));
+    const image = node('img');
+    image.src = source;
+    image.alt = '';
+    button.append(image);
+    return button;
+  }) : [];
+
+  function update(index) {
+    if (index !== active) {
+      gallery.classList.remove('is-zoomed');
+      zoom.setAttribute('aria-pressed','false');
+    }
+    active = index;
+    count.textContent = (index + 1) + ' / ' + photos.length;
+    previous.disabled = index === 0;
+    next.disabled = index === photos.length - 1;
+    thumbnails.forEach((button,i) => button.setAttribute('aria-pressed',String(i === index)));
+  }
+
+  function showPhoto(index, animate = true) {
+    const safeIndex = Math.max(0,Math.min(index,photos.length - 1));
+    frame.scrollTo({
+      left:safeIndex * frame.clientWidth,
+      behavior:animate && !motion.matches ? 'smooth' : 'auto',
     });
-    updateSelection(0);
-    imageFrame.addEventListener('scroll', () => {
-      updateSelection(Math.round(imageFrame.scrollLeft / imageFrame.clientWidth));
+  }
+
+  if (photos.length > 1) {
+    frame.tabIndex = 0;
+    frame.setAttribute('role','region');
+    frame.setAttribute('aria-label','Барааны зургийн цомог');
+    stage.append(previous,next);
+    thumbs.append(...thumbnails);
+    gallery.append(thumbs);
+    frame.addEventListener('scroll', () => {
+      if (frame.clientWidth) update(Math.max(0,Math.min(photos.length - 1,Math.round(frame.scrollLeft / frame.clientWidth))));
     }, {passive:true});
-    imageFrame.addEventListener('keydown', event => {
+    frame.addEventListener('keydown', event => {
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
       event.preventDefault();
-      const active = Math.round(imageFrame.scrollLeft / imageFrame.clientWidth);
-      const next = active + (event.key === 'ArrowRight' ? 1 : -1);
-      showPhoto(Math.max(0, Math.min(next, product.images.length - 1)));
+      showPhoto(active + (event.key === 'ArrowRight' ? 1 : -1));
     });
-    gallery.append(thumbnails);
   }
+  update(0);
+  return { gallery, showPhoto };
+}
+
+function showDetail(product, initialColor) {
+  const panel = node('div', '', 'product-view');
+  const close = closeButton(productDialog);
+  close.classList.add('detail-close');
+  close.autofocus = true;
+  const columns = node('div', '', 'detail-grid');
+  const { gallery, showPhoto } = createProductGallery(product);
   const copy = node('div', '', 'detail-copy');
   const colors = product.colors ?? [];
-  let selectedColor = product.sample || colors.length === 1 ? colors[0] : null;
-  const addButton = action('Сагсанд нэмэх', 'button primary', () => {
-    addProduct(product,selectedColor);
-    addButton.textContent = quantityInBag(product.id) >= Math.min(product.stock,999) ? 'Сагсанд байгаа' : 'Дахин нэмэх';
-    addButton.disabled = quantityInBag(product.id) >= Math.min(product.stock,999);
-  });
+  let selectedColor = initialColor ?? (product.sample || colors.length === 1 ? colors[0] : null);
+  const shown = displayedVariant(product,selectedColor);
+  const title = node('h2',shown.name);
+  title.id = 'detail-title';
   const fullQuantity = () => quantityInBag(product.id) >= Math.min(product.stock,999);
-  addButton.disabled = !product.stock || fullQuantity() || (colors.length > 0 && !selectedColor);
-  if (product.stock && fullQuantity()) addButton.textContent = 'Сагсанд байгаа';
-  const productPrice = priceBlock(product);
-  const description = node('p', product.description);
-  copy.append(node('p', product.category, 'product-category'), productPrice, description);
+  const productPrice = priceBlock(shown);
+  const description = node('p',shown.description,'detail-description');
+  const feedback = node('p', '', 'detail-feedback');
+  feedback.setAttribute('role','status');
+  const viewBag = action('Сагс харах', 'button detail-view-bag', () => {
+    productDialog.close();
+    openBag();
+  });
+  viewBag.hidden = true;
+  const addButton = action('Сагсанд нэмэх', 'button detail-add', () => {
+    addProduct(product,selectedColor);
+    feedback.textContent = selectedColor ? selectedColor.name + ' өнгийг сагсанд нэмлээ.' : 'Сагсанд нэмлээ.';
+    viewBag.hidden = false;
+    updateAddButton(true);
+  });
+
+  function updateAddButton(added = false) {
+    addButton.disabled = !product.stock || fullQuantity() || (colors.length > 0 && !selectedColor);
+    addButton.textContent = !product.stock ? 'Дууссан' : fullQuantity() ? 'Сагсанд байгаа' :
+      added ? 'Дахин нэмэх' : 'Сагсанд нэмэх';
+  }
+
+  const stock = node('span',stockText(product),'detail-status' + (product.stock ? ' is-available' : ''));
+  copy.append(node('p',product.category,'detail-category'),title,productPrice,stock);
   if (colors.length) {
     const choices = node('fieldset', '', 'store-color-options');
     const label = node('legend',selectedColor ? 'Өнгө · ' + selectedColor.name : 'Өнгө сонгох');
     const swatches = node('div', '', 'swatch-list');
-    const select = color => {
-      selectedColor = color;
-      label.textContent = 'Өнгө · ' + color.name;
-      for (const [i,button] of [...swatches.children].entries()) {
-        button.setAttribute('aria-pressed',String(colors[i].id === color.id));
-      }
-      if (color.photo != null && product.images[color.photo]) showPhoto(color.photo);
-      if (product.sample) {
-        const shown = products.find(entry => entry.sample && entry.images[0] === product.images[color.photo]);
-        if (shown) {
-          title.textContent = shown.name;
-          description.textContent = shown.description;
-          productPrice.replaceChildren(...priceBlock(shown).childNodes);
-        }
-      }
-      addButton.disabled = !product.stock || fullQuantity();
-    };
     for (const color of colors) {
-      const button = action('', 'swatch-choice', () => select(color));
+      const button = action('', 'swatch-choice', () => {
+        selectedColor = color;
+        label.textContent = 'Өнгө · ' + color.name;
+        for (const [i,choice] of [...swatches.children].entries()) {
+          choice.setAttribute('aria-pressed',String(colors[i].id === color.id));
+        }
+        if (product.images.length) showPhoto(color.photo ?? 0);
+        if (product.sample) {
+          const variant = displayedVariant(product,color);
+          title.textContent = variant.name;
+          description.textContent = variant.description;
+          productPrice.replaceChildren(...priceBlock(variant).childNodes);
+        }
+        if (!product.sample) updateAddButton();
+      });
       const swatch = node('span', '', 'color-dot');
       swatch.style.backgroundColor = color.hex;
       swatch.setAttribute('aria-hidden','true');
@@ -158,21 +220,24 @@ function showDetail(product) {
     choices.append(label,swatches);
     copy.append(choices);
   }
+  if (product.description) copy.append(description);
+  columns.append(gallery,copy);
+  panel.append(close,columns);
   if (product.sample) {
-    copy.append(node('p', 'Жишээ загвар, жишээ үнэ.', 'muted'));
+    copy.append(node('p','Жишээ үнэ','detail-note'));
   } else {
-    copy.append(node('span', stockText(product), 'stock-label' + (product.stock ? '' : ' empty')), addButton);
+    updateAddButton();
+    const actions = node('div','','detail-actions');
+    actions.append(feedback,addButton,viewBag);
+    panel.append(actions);
   }
-  columns.append(gallery, copy);
-  panel.append(head, columns);
   $('#detail-content').replaceChildren(panel);
   if (!productDialog.open) productDialog.showModal();
-  if (selectedColor?.photo > 0) showPhoto(selectedColor.photo);
+  if (selectedColor?.photo > 0) showPhoto(selectedColor.photo,false);
 }
 
 function renderCatalog() {
-  const categories = Array.from(new Set(products.map(p => p.category))).sort((a,b) => a.localeCompare(b));
-  const categoryOptions = [[all,'Бүх бараа'], [sale,'Хямдрал'], [favorite,'Хадгалсан'], ...categories.map(value => ['category:' + value,value])];
+  const categoryOptions = [[all,'Бүх бараа'], [sale,'Хямдрал'], [favorite,'Хадгалсан']];
   if (!categoryOptions.some(([value]) => value === category)) category = all;
   const scrollOffset = categoryList.scrollLeft;
   categoryList.replaceChildren(...categoryOptions.map(([value, title]) => {
@@ -187,23 +252,40 @@ function renderCatalog() {
   }));
   categoryList.scrollLeft = scrollOffset;
   $('#catalog-title').textContent = categoryOptions.find(([value]) => value === category)[1];
-  const query = $('#search').value.trim().toLowerCase();
   const sort = $('#sort').value;
   const list = products.filter(p => (
-    (category === all || (category === sale ? p.sale_price !== null : category === favorite ? favorites.has(p.id) : 'category:' + p.category === category))
-    && [p.name,p.category,p.description].some(value => value.toLowerCase().includes(query))
+    (category === all || (category === sale ? p.sale_price !== null : favorites.has(p.id)))
+    && (!filters.type || p.category === filters.type)
+    && (filters.minPrice === null || currentPrice(p) >= filters.minPrice)
+    && (filters.maxPrice === null || currentPrice(p) <= filters.maxPrice)
   ));
   if (sort === 'low') list.sort((a,b) => currentPrice(a) - currentPrice(b));
   if (sort === 'high') list.sort((a,b) => currentPrice(b) - currentPrice(a));
   if (sort === 'name') list.sort((a,b) => a.name.localeCompare(b.name));
   status.textContent = loaded ? list.length + ' бараа' : 'Бараа ачаалж байна…';
+  const activeFilters = [filters.type,filters.minPrice !== null ? money(filters.minPrice) + '-өөс' : '',
+    filters.maxPrice !== null ? money(filters.maxPrice) + ' хүртэл' : ''].filter(Boolean);
+  $('#filter-label').textContent = activeFilters.length ? 'Шүүлтүүр · ' + activeFilters.length : 'Шүүлтүүр';
+  const count = $('#mobile-filter-count');
+  count.textContent = activeFilters.length;
+  count.hidden = activeFilters.length === 0;
+  const summary = $('#filter-summary');
+  summary.textContent = activeFilters.join(' · ');
+  summary.hidden = activeFilters.length === 0;
   grid.replaceChildren();
-  if (loaded && !list.length) grid.append(node('p', category === favorite ? 'Хадгалсан бараа байхгүй байна.' : 'Тохирох бараа олдсонгүй.', 'empty-state'));
+  if (loaded && !list.length) {
+    const empty = node('div','','empty-state');
+    empty.append(node('p', !activeFilters.length && category === favorite ? 'Хадгалсан бараа байхгүй байна.' : 'Тохирох бараа олдсонгүй.'));
+    if (activeFilters.length) empty.append(action('Шүүлтүүр арилгах','button',resetFilters));
+    grid.append(empty);
+  }
   for (const product of list) {
     const fragment = $('#card-template').content.cloneNode(true);
     const media = fragment.querySelector('.product-media');
+    let previewColor;
+    const openDetail = () => showDetail(product,previewColor);
     media.setAttribute('aria-label', product.name + ' үзэх');
-    media.addEventListener('click', () => showDetail(product));
+    media.addEventListener('click',openDetail);
     const heart = fragment.querySelector('.favorite-button');
     const syncFavorite = () => {
       const selected = favorites.has(product.id);
@@ -221,11 +303,16 @@ function renderCatalog() {
     syncFavorite();
     const image = media.querySelector('img');
     if (product.images[0]) {
-      image.src = product.images[0];
+      const fallback = media.querySelector('.no-image');
       image.addEventListener('error', () => {
         image.hidden = true;
-        media.querySelector('.no-image').hidden = false;
-      }, {once:true});
+        fallback.hidden = false;
+      });
+      image.addEventListener('load', () => {
+        image.hidden = false;
+        fallback.hidden = true;
+      });
+      image.src = product.images[0];
     } else {
       image.hidden = true;
       media.querySelector('.no-image').hidden = false;
@@ -234,20 +321,45 @@ function renderCatalog() {
     fragment.querySelector('.product-category').textContent = product.category;
     const title = fragment.querySelector('h3 button');
     title.textContent = product.name;
-    title.addEventListener('click', () => showDetail(product));
-    fragment.querySelector('.prices').replaceWith(priceBlock(product));
+    title.addEventListener('click',openDetail);
+    const prices = priceBlock(product);
+    fragment.querySelector('.prices').replaceWith(prices);
+    if (product.colors?.length > 1) {
+      const variants = node('div','','card-swatches');
+      variants.setAttribute('role','group');
+      variants.setAttribute('aria-label','Өнгөний урьдчилсан харагдац');
+      product.colors.forEach((color,index) => {
+        const swatch = action('', 'card-swatch', () => {
+          previewColor = color;
+          const shown = displayedVariant(product,color);
+          title.textContent = shown.name;
+          media.setAttribute('aria-label',shown.name + ' үзэх');
+          prices.replaceChildren(...priceBlock(shown).childNodes);
+          media.querySelector('.sale-badge').hidden = !shown.sale_price;
+          if (product.images.length) image.src = product.images[color.photo] ?? product.images[0];
+          for (const [i,button] of [...variants.children].entries()) button.setAttribute('aria-pressed',String(i === index));
+        });
+        const dot = node('span','','color-dot');
+        dot.style.backgroundColor = color.hex;
+        swatch.setAttribute('aria-label',color.name);
+        swatch.setAttribute('aria-pressed',String(color.photo === 0));
+        swatch.append(dot);
+        variants.append(swatch);
+      });
+      prices.after(variants);
+    }
     const stock = fragment.querySelector('.stock-label');
     stock.textContent = stockText(product);
     stock.classList.toggle('empty', !product.stock);
     const add = fragment.querySelector('.add-button');
     if (product.sample) {
       add.textContent = 'Дэлгэрэнгүй';
-      add.addEventListener('click', () => showDetail(product));
+      add.addEventListener('click',openDetail);
       fragment.querySelector('.product-card').classList.add('sample-card');
     } else if (product.colors?.length) {
       add.textContent = 'Өнгө сонгох';
       add.disabled = !product.stock;
-      add.addEventListener('click', () => showDetail(product));
+      add.addEventListener('click',openDetail);
     } else {
       add.disabled = !product.stock;
       add.addEventListener('click', () => addProduct(product));
@@ -261,6 +373,9 @@ async function loadProducts() {
   const showingSamples = live.length === 0;
   products = showingSamples ? await api('/collection-samples.json') : live;
   $('#sample-notice').hidden = !showingSamples;
+  const types = [...new Set(products.map(product => product.category))].sort((a,b) => a.localeCompare(b));
+  $('#filter-type').replaceChildren(new Option('Бүх төрөл',''),...types.map(type=>new Option(type,type)));
+  if (filters.type && !types.includes(filters.type)) filters.type = '';
   loaded = true;
   renderCatalog();
 }
@@ -405,20 +520,64 @@ function renderCheckout(items) {
   });
 }
 
-$('#search').addEventListener('input', renderCatalog);
 $('#sort').addEventListener('change', renderCatalog);
 const selectCategory = value => {
   category = value;
-  $('#search').value = '';
   renderCatalog();
 };
 for (const link of ['#sale-link','#mobile-sale']) $(link).addEventListener('click', () => selectCategory(sale));
 for (const link of ['#shop-link','#nav-shop','#mobile-shop']) $(link).addEventListener('click', () => selectCategory(all));
-$('#mobile-search').addEventListener('click', () => {
-  const search = $('#search');
-  search.focus({preventScroll:true});
+
+function openFilters() {
+  for (const key of Object.keys(filters)) filterForm.elements[key].value = filters[key] ?? '';
+  $('#filter-error').hidden = true;
+  filterDialog.showModal();
+}
+
+function resetFilters() {
+  filters = {type:'', minPrice:null, maxPrice:null};
+  filterForm.reset();
+  renderCatalog();
+  if (filterDialog.open) filterDialog.close();
+}
+
+for (const button of ['#open-filters','#mobile-filter']) $(button).addEventListener('click',openFilters);
+$('#close-filters').addEventListener('click',() => filterDialog.close());
+$('#reset-filters').addEventListener('click',resetFilters);
+filterForm.addEventListener('submit',event => {
+  event.preventDefault();
+  const fields = filterForm.elements;
+  const minPrice = fields.minPrice.value === '' ? null : fields.minPrice.valueAsNumber;
+  const maxPrice = fields.maxPrice.value === '' ? null : fields.maxPrice.valueAsNumber;
+  if (minPrice !== null && maxPrice !== null && minPrice > maxPrice) {
+    const error = $('#filter-error');
+    error.textContent = 'Дээд үнэ доод үнээс бага байж болохгүй.';
+    error.hidden = false;
+    fields.maxPrice.focus();
+    return;
+  }
+  filters = {type:fields.type.value,minPrice,maxPrice};
+  renderCatalog();
+  filterDialog.close();
   $('#catalog').scrollIntoView();
 });
+
+function applyLanding(settings) {
+  document.body.dataset.theme = settings.theme;
+  const hero = $('.hero');
+  hero.dataset.position = settings.position;
+  const heading = $('#hero-heading');
+  if (settings.heading !== 'Монгол үндэсний хувцас') heading.textContent = settings.heading;
+  $('#hero-description').textContent = settings.description;
+  $('#hero-description').hidden = !settings.description;
+  $('#shop-link').textContent = settings.action;
+  const image = $('.hero-media img');
+  image.alt = settings.alt;
+  if (settings.image) {
+    $('.hero-media source').srcset = settings.image;
+    image.src = settings.image;
+  }
+}
 
 async function openBag() {
   const opening = bagPanel('Таны сагс');
@@ -432,6 +591,24 @@ async function openBag() {
   }
 }
 for (const button of ['#bag-button','#mobile-bag']) $(button).addEventListener('click',openBag);
+productDialog.addEventListener('click', event => {
+  if (event.target === productDialog) productDialog.close();
+});
+const fineMotion = window.matchMedia('(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)');
+if (fineMotion.matches) {
+  const hero = $('.hero');
+  hero.addEventListener('pointermove',event => {
+    if (!fineMotion.matches || event.pointerType !== 'mouse') return;
+    const {left,top,width,height} = hero.getBoundingClientRect();
+    hero.style.setProperty('--hero-pan-x', ((event.clientX - left) / width - .5) * -16 + 'px');
+    hero.style.setProperty('--hero-pan-y', ((event.clientY - top) / height - .5) * -12 + 'px');
+  }, {passive:true});
+  hero.addEventListener('pointerleave',() => {
+    hero.style.removeProperty('--hero-pan-x');
+    hero.style.removeProperty('--hero-pan-y');
+  });
+}
+
 const topLink = $('#back-to-top');
 if ('IntersectionObserver' in window) {
   const headerObserver = new IntersectionObserver(([entry]) => {
@@ -440,4 +617,5 @@ if ('IntersectionObserver' in window) {
   headerObserver.observe($('#hero-heading'));
 }
 updateBag();
+api('/api/storefront').then(applyLanding).catch(() => {});
 loadProducts().catch(error => { status.textContent = error.message; });

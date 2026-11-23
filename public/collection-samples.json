@@ -1,5 +1,89 @@
 [
   {
+    "id": "sample-khantaaz-studded",
+    "name": "Шигтгээтэй хар хантааз",
+    "category": "Хантааз",
+    "description": "Цэгэн шигтгээ, ялгарах эмжээртэй, зөрүү энгэртэй хар хантаазны жишээ загвар.",
+    "price": 159000,
+    "sale_price": null,
+    "stock": 0,
+    "sample": true,
+    "images": [
+      "/images/khantaaz-studded.webp"
+    ],
+    "colors": [
+      {
+        "id": "black",
+        "name": "Хар",
+        "hex": "#212127",
+        "photo": 0
+      }
+    ]
+  },
+  {
+    "id": "sample-set-crimson-ivory",
+    "name": "Улаан хантаазтай цайвар иж бүрдэл",
+    "category": "Иж бүрдэл",
+    "description": "Цагаан хээтэй улаан хантаазыг цайвар урт дээлтэй хослуулсан жишээ иж бүрдэл.",
+    "price": 359000,
+    "sale_price": null,
+    "stock": 0,
+    "sample": true,
+    "images": [
+      "/images/set-crimson-ivory.webp"
+    ],
+    "colors": [
+      {
+        "id": "red",
+        "name": "Улаан, цайвар",
+        "hex": "#a71d40",
+        "photo": 0
+      }
+    ]
+  },
+  {
+    "id": "sample-deel-ivory",
+    "name": "Сүүн цагаан урт дээл",
+    "category": "Дээл",
+    "description": "Босоо зах, урт ханцуй, цайвар бүс бүхий бүрэн урт дээлийн жишээ загвар.",
+    "price": 269000,
+    "sale_price": null,
+    "stock": 0,
+    "sample": true,
+    "images": [
+      "/images/deel-ivory.webp"
+    ],
+    "colors": [
+      {
+        "id": "cream",
+        "name": "Цайвар",
+        "hex": "#efdfbf",
+        "photo": 0
+      }
+    ]
+  },
+  {
+    "id": "sample-jacket-magenta",
+    "name": "Хээтэй ягаан богино хүрэм",
+    "category": "Хүрэм",
+    "description": "Босоо зах, урд товчлолтой, энгэр болон ханцуйн хэсэгт цайвар хээтэй ягаан хүрэм.",
+    "price": 249000,
+    "sale_price": null,
+    "stock": 0,
+    "sample": true,
+    "images": [
+      "/images/jacket-magenta.webp"
+    ],
+    "colors": [
+      {
+        "id": "pink",
+        "name": "Ягаан",
+        "hex": "#a02771",
+        "photo": 0
+      }
+    ]
+  },
+  {
     "id": "sample-crimson-khantaaz",
     "name": "Цагаан хээтэй улаан хантааз",
     "category": "Хантааз",

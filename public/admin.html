@@ -18,9 +18,7 @@
     <section class="panel login-panel" id="login-panel" hidden>
       <h1>Админ нэвтрэх</h1><p class="muted">Бараа, үлдэгдэл, захиалгаа удирдах хэсэг.</p>
       <form id="login" class="fields">
-        <label id="username-field">Хэрэглэгчийн нэр<input name="username" autocomplete="username" required maxlength="100"></label>
-        <label id="password-field">Нууц үг<input name="password" type="password" autocomplete="current-password" required maxlength="256"></label>
-        <label id="passcode-field" hidden>Админ PIN<input name="passcode" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off"></label>
+        <label id="passcode-field">Админ код<input name="passcode" type="password" required minlength="16" maxlength="256" autocomplete="current-password"></label>
         <p class="form-message" id="login-error" role="alert" hidden></p>
         <button class="button primary" type="submit">Нэвтрэх</button>
       </form>
@@ -31,6 +29,8 @@
       <div class="admin-toolbar">
         <div class="admin-actions" aria-label="Дэлгүүр удирдах">
           <button class="category-button" type="button" id="products-tab" aria-pressed="true">Бараа</button>
+          <button class="category-button" type="button" id="categories-tab" aria-pressed="false">Ангилал</button>
+          <button class="category-button" type="button" id="storefront-tab" aria-pressed="false">Нүүр хуудас</button>
           <button class="category-button" type="button" id="orders-tab" aria-pressed="false">Захиалга</button>
         </div>
         <button class="button secondary" type="button" id="logout">Гарах</button>
@@ -49,6 +49,41 @@
             <a href="/TUYA_PRODUCT_IMPORT.md" download class="guide-download">Markdown загвар татах</a>
           </details>
           <p id="inventory-status" class="muted" role="status"></p><div id="inventory-list"></div>
+          <details class="admin-archive" id="archived-products" hidden>
+            <summary>Архивласан бараа</summary><div id="archive-list"></div>
+          </details>
+        </section>
+        <section class="panel" id="categories" hidden>
+          <div class="admin-toolbar"><h2>Барааны ангилал</h2></div>
+          <form class="fields" id="category-form">
+            <label>Шинэ ангилал<input name="name" maxlength="45" required></label>
+            <button class="button primary" type="submit">Ангилал нэмэх</button>
+          </form>
+          <p id="categories-status" class="muted admin-view-status" role="status"></p>
+          <div id="category-list"></div>
+        </section>
+        <section class="panel" id="storefront" hidden>
+          <div class="admin-toolbar"><h2>Нүүр хуудасны загвар</h2></div>
+          <p id="storefront-status" class="muted admin-view-status" role="status"></p>
+          <form class="fields storefront-editor" id="storefront-form" hidden>
+            <div class="storefront-editor-fields">
+              <label>Гарчиг<input name="heading" required maxlength="90"></label>
+              <label>Товч тайлбар<textarea name="description" maxlength="240" rows="3"></textarea></label>
+              <label>Товчны бичвэр<input name="action" required maxlength="40"></label>
+              <label>Зургийн тайлбар<input name="alt" required maxlength="140"></label>
+              <div class="field-pair">
+                <label>Өнгөний загвар<select name="theme"><option value="wine">Туяа · дарсны улаан</option><option value="ink">Шөнө · гүн хөх</option><option value="forest">Ой · гүн ногоон</option></select></label>
+                <label>Зургийн төв<select name="position"><option value="left">Зүүн</option><option value="center">Дунд</option><option value="right">Баруун</option></select></label>
+              </div>
+              <label>Нүүр зураг<input id="storefront-image" type="file" accept="image/jpeg,image/png,image/webp"></label>
+              <label class="check-option"><input name="remove_image" type="checkbox"> Үндсэн зургийг сэргээх</label>
+              <button class="button primary" type="submit">Нүүр хуудас хадгалах</button>
+            </div>
+            <div class="storefront-preview" id="storefront-preview" aria-label="Нүүр хуудасны урьдчилсан харагдац">
+              <img alt="" id="storefront-preview-image">
+              <div><p id="storefront-preview-heading"></p><span id="storefront-preview-action"></span></div>
+            </div>
+          </form>
         </section>
         <section class="panel" id="orders" hidden>
           <div class="admin-toolbar"><h2>Захиалга</h2><button class="button secondary" id="refresh-orders" type="button">Шинэчлэх</button></div>
@@ -71,9 +106,9 @@
         <label>Тайлбар<textarea name="description" maxlength="2000" rows="3"></textarea></label>
         <div class="field-pair">
           <label>Үндсэн үнэ (₮)<input name="price" required type="number" inputmode="numeric" min="1" max="999999999" step="1"></label>
-          <label>Хямдралын үнэ (₮, заавал биш)<input name="sale_price" type="number" inputmode="numeric" min="1" max="999999998" step="1"></label>
+          <div class="admin-sale-field"><label>Хямдралын үнэ (₮, заавал биш)<input name="sale_price" type="number" inputmode="numeric" min="1" max="999999998" step="1"></label><button id="clear-sale" class="button secondary" type="button">Хямдрал арилгах</button></div>
         </div>
-        <label>Үлдэгдэл тоо<input name="stock" required type="number" inputmode="numeric" min="0" max="999999" step="1"></label>
+        <label>Үлдэгдэл тоо (ширхэг)<input name="stock" required placeholder="Жишээ нь 10" type="number" inputmode="numeric" min="0" max="999999" step="1"></label>
         <label>Барааны зураг<input id="photo-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-describedby="photo-help"></label>
         <p class="muted" id="photo-help">JPEG, PNG, WebP форматаар 4 хүртэл зураг сонгоно. Шинэ зураг сонговол одоогийн зургуудыг солино.</p>
         <div id="photo-preview" class="preview-list"></div>

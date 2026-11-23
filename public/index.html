@@ -23,7 +23,7 @@
     <section class="hero" aria-labelledby="hero-heading">
       <div class="hero-copy">
         <h1 id="hero-heading">Монгол үндэсний<br class="wide-only"> хувцас<span>.</span></h1>
-        <p>Уламжлалт хийц, хээ угалзтай хантаазны цуглуулга.</p>
+        <p id="hero-description">Уламжлалт хийц, хээ угалзтай үндэсний хувцасны цуглуулга.</p>
         <a class="button primary hero-action" href="#catalog" id="shop-link">Цуглуулга үзэх</a>
       </div>
       <div class="hero-media">
@@ -37,11 +37,12 @@
       <h2 id="catalog-title">Бүх бараа</h2>
       <div class="catalog-tools">
         <div class="catalog-head">
-          <label class="search"><span class="sr-only">Бараа хайх</span><span class="search-icon" aria-hidden="true"></span><input id="search" type="search" placeholder="Бараа хайх"></label>
+          <button id="open-filters" class="button filter-trigger" type="button"><span class="filter-icon" aria-hidden="true"></span><span id="filter-label">Шүүлтүүр</span></button>
           <label class="sorting"><span class="sr-only">Бараа эрэмбэлэх</span><select id="sort"><option value="new">Шинэ бараа</option><option value="low">Үнэ өсөхөөр</option><option value="high">Үнэ буурахаар</option><option value="name">Нэрээр</option></select></label>
         </div>
         <div class="categories" id="categories" aria-label="Барааны ангилал"></div>
       </div>
+      <p id="filter-summary" class="filter-summary" hidden></p>
       <p id="sample-notice" class="sample-notice" hidden>Энд жишээ загвар, жишээ үнэ харагдаж байна.</p>
       <p id="catalog-status" class="catalog-status" role="status">Бараа ачаалж байна…</p>
       <div id="product-grid" class="product-grid"></div>
@@ -51,10 +52,24 @@
   <nav class="mobile-dock" aria-label="Утасны дэлгүүрийн цэс">
     <a href="#catalog" id="mobile-shop">Дэлгүүр</a>
     <a href="#catalog" id="mobile-sale">Хямдрал</a>
-    <button type="button" id="mobile-search">Хайх</button>
+    <button type="button" id="mobile-filter">Шүүх<span id="mobile-filter-count" hidden></span></button>
     <button type="button" id="mobile-bag">Сагс <span id="mobile-bag-count">0</span></button>
   </nav>
   <a class="back-to-top" id="back-to-top" href="#top" aria-label="Хуудасны эхэнд очих" hidden>↑</a>
+  <dialog id="filter-dialog" class="filter-dialog" aria-labelledby="filter-title">
+    <div class="dialog-panel">
+      <div class="dialog-head"><h2 id="filter-title">Бараа шүүх</h2><button type="button" id="close-filters" class="close-button" aria-label="Хаах">×</button></div>
+      <form id="filter-form" class="fields">
+        <label>Барааны төрөл<select name="type" id="filter-type"><option value="">Бүх төрөл</option></select></label>
+        <div class="field-pair filter-price-fields">
+          <label>Доод үнэ (₮)<input name="minPrice" type="number" inputmode="numeric" min="0" max="999999999" step="1"></label>
+          <label>Дээд үнэ (₮)<input name="maxPrice" type="number" inputmode="numeric" min="0" max="999999999" step="1"></label>
+        </div>
+        <p id="filter-error" class="form-message" role="alert" hidden></p>
+        <div class="filter-actions"><button id="reset-filters" class="button secondary" type="button">Арилгах</button><button class="button primary" type="submit">Үр дүнг харах</button></div>
+      </form>
+    </div>
+  </dialog>
   <dialog id="product-dialog" class="product-dialog" aria-labelledby="detail-title"><div id="detail-content"></div></dialog>
   <dialog id="bag-dialog" class="bag-dialog" aria-labelledby="bag-title"><div id="bag-content"></div></dialog>
   <template id="card-template">

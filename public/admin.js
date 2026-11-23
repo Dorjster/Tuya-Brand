@@ -10,6 +10,10 @@ const ordersStatus = $('#orders-status');
 const colorList = $('#color-options');
 const importInput = $('#product-import');
 const importStatus = $('#import-status');
+const storefrontForm = $('#storefront-form');
+let storefront;
+let storefrontPreviewUrl;
+const defaultHero = '/images/hero.webp';
 const palette = [
   ['red','Улаан','#a71d40'], ['blue','Хөх','#264987'], ['black','Хар','#212127'], ['copper','Хүрэн','#945531'],
   ['white','Цагаан','#f4f1e8'], ['cream','Шаргал','#d8bc91'], ['green','Ногоон','#336446'], ['gray','Саарал','#7f8090'],
@@ -34,23 +38,26 @@ async function signedOut(message = '') {
   setMessage('#page-status', 'Нэвтрэх эрх шалгаж байна…');
   setMessage('#login-error', message);
   const fields = $('#login').elements;
-  fields.password.value = '';
   fields.passcode.value = '';
   try {
     const mode = await api('/api/admin/sign-in');
-    fields.username.required = fields.password.required = !mode.owner;
-    $('#username-field').hidden = $('#password-field').hidden = mode.owner;
-    fields.passcode.required = mode.passcode;
-    $('#passcode-field').hidden = !mode.passcode;
+    fields.passcode.minLength = mode.owner ? 4 : 16;
+    fields.passcode.maxLength = mode.owner ? 4 : 256;
+    fields.passcode.inputMode = mode.owner ? 'numeric' : 'text';
+    if (mode.owner) fields.passcode.pattern = '[0-9]{4}';
+    else fields.passcode.removeAttribute('pattern');
     $('#login-panel').hidden = false;
     setMessage('#page-status', '');
-    if (mode.owner) fields.passcode.focus();
+    fields.passcode.focus();
   } catch (error) {
     setMessage('#page-status', error.message);
   }
   inventory = [];
   $('#inventory-list').replaceChildren();
   $('#order-list').replaceChildren();
+  $('#category-list').replaceChildren();
+  $('#archive-list').replaceChildren();
+  storefrontForm.hidden = true;
 }
 
 function report(error, destination) {
@@ -69,30 +76,119 @@ async function signedIn(session) {
 async function refreshProducts(notice = '') {
   inventoryStatus.textContent = 'Барааны жагсаалт ачаалж байна…';
   try {
-    inventory = await api('/api/admin/products');
-    inventoryStatus.textContent = notice || (inventory.length ? inventory.length + ' бараа' : 'Дэлгүүртээ эхний бараагаа нэмээрэй.');
-    $('#admin-categories').replaceChildren(...[...new Set(inventory.map(p => p.category))].map(category => {
+    const [items,categories] = await Promise.all([api('/api/admin/products'),api('/api/admin/categories')]);
+    inventory = items;
+    const current = inventory.filter(p => !p.archived);
+    const archived = inventory.filter(p => p.archived);
+    inventoryStatus.textContent = notice || (current.length ? current.length + ' бараа' : 'Дэлгүүртээ эхний бараагаа нэмээрэй.');
+    $('#archived-products').hidden = archived.length === 0;
+    $('#admin-categories').replaceChildren(...categories.map(({name}) => {
       const option = node('option');
-      option.value = category;
+      option.value = name;
       return option;
     }));
-    $('#inventory-list').replaceChildren(...inventory.map(product => {
-      const row = node('div', '', 'admin-row');
-      const imageFrame = node('div', '', 'mini');
-      if (product.images[0]) {
-        const image = node('img');
-        image.src = product.images[0];
-        image.alt = '';
-        imageFrame.append(image);
+    $('#inventory-list').replaceChildren(...current.map(inventoryRow));
+    $('#archive-list').replaceChildren(...archived.map(inventoryRow));
+  } catch (error) {
+    report(error, inventoryStatus);
+  }
+}
+
+function inventoryRow(product) {
+  const row = node('div','','admin-row');
+  const imageFrame = node('div','','mini');
+  if (product.images[0]) {
+    const image = node('img');
+    image.src = product.images[0];
+    image.alt = '';
+    imageFrame.append(image);
+  }
+  const details = node('div','','inventory-label');
+  details.append(node('strong',product.name),node('p',product.category + ' · ' +
+    product.stock + ' ширхэг үлдсэн · ' + (product.archived ? 'Архивт' : product.active ? 'Нийтэлсэн' : 'Ноорог'),'muted'));
+  details.append(node('p',product.sale_price ? money(product.price) + ' → ' + money(product.sale_price) : money(product.price),'admin-row-price'));
+  const buttons = node('div','','admin-actions');
+  if (!product.archived) buttons.append(action('Засах','button secondary',() => openProduct(product)));
+  const archive = action(product.archived ? 'Сэргээх' : 'Архивлах','button secondary',async () => {
+    if (!product.archived && !confirm('Энэ барааг дэлгүүрээс хасаж, архивлах уу?')) return;
+    archive.disabled = true;
+    try {
+      await api('/api/admin/products/' + product.id,{method:'PATCH',json:{archived:!product.archived,version:product.version}});
+      await refreshProducts(product.archived ? 'Барааг ноорог болгон сэргээв.' : 'Барааг архивлав.');
+    } catch (error) {
+      if (error.status === 409) await refreshProducts(error.message);
+      else report(error,inventoryStatus);
+    } finally {
+      archive.disabled = false;
+    }
+  });
+  buttons.append(archive);
+  row.append(imageFrame,details,buttons);
+  return row;
+}
+
+async function refreshCategories(notice = '') {
+  const status = $('#categories-status');
+  try {
+    const categories = await api('/api/admin/categories');
+    status.textContent = notice || '';
+    $('#category-list').replaceChildren(...categories.map(category => {
+      const row = node('div','','admin-row');
+      const info = node('div','','inventory-label');
+      info.append(node('strong',category.name),node('p',category.product_count + ' бараа','muted'));
+      row.append(info);
+      if (category.name !== 'Ангилалгүй') {
+        const remove = action('Хасах','button secondary',async () => {
+          const detail = category.product_count ? ' Бараанууд «Ангилалгүй» болно.' : '';
+          if (!confirm('«' + category.name + '» ангиллыг хасах уу?' + detail)) return;
+          remove.disabled = true;
+          try {
+            await api('/api/admin/categories',{method:'DELETE',json:{name:category.name}});
+            await refreshCategories('Ангиллыг хаслаа.');
+          } catch (error) {
+            report(error,status);
+          } finally {
+            remove.disabled = false;
+          }
+        });
+        row.append(remove);
       }
-      const details = node('div', '', 'inventory-label');
-      details.append(node('strong',product.name),node('p',
-        money(product.sale_price ?? product.price) + ' · ' + product.stock + ' ширхэг үлдсэн · ' + (product.active ? 'Нийтэлсэн' : 'Ноорог'), 'muted'));
-      row.append(imageFrame,details,action('Засах', 'button secondary', () => openProduct(product)));
       return row;
     }));
   } catch (error) {
-    report(error, inventoryStatus);
+    report(error,status);
+  }
+}
+
+function renderStorefrontPreview() {
+  const fields = storefrontForm.elements;
+  const photo = $('#storefront-image').files[0];
+  if (storefrontPreviewUrl) URL.revokeObjectURL(storefrontPreviewUrl);
+  storefrontPreviewUrl = photo ? URL.createObjectURL(photo) : null;
+  const preview = $('#storefront-preview');
+  preview.dataset.theme = fields.theme.value;
+  preview.dataset.position = fields.position.value;
+  $('#storefront-preview-heading').textContent = fields.heading.value;
+  $('#storefront-preview-action').textContent = fields.action.value;
+  $('#storefront-preview-image').src = storefrontPreviewUrl || (fields.remove_image.checked ? null : storefront?.image) || defaultHero;
+}
+
+function fillStorefront(settings) {
+  storefront = settings;
+  storefrontForm.reset();
+  for (const field of ['heading','description','action','alt','theme','position']) storefrontForm.elements[field].value = settings[field];
+  renderStorefrontPreview();
+  storefrontForm.hidden = false;
+}
+
+async function refreshStorefront() {
+  const status = $('#storefront-status');
+  status.textContent = 'Нүүр хуудасны тохиргоо ачаалж байна…';
+  try {
+    fillStorefront(await api('/api/storefront'));
+    status.textContent = '';
+  } catch (error) {
+    report(error,status);
   }
 }
 
@@ -192,8 +288,6 @@ function openProduct(product) {
   $('#editor-title').textContent = product ? 'Бараа засах' : 'Бараа нэмэх';
   if (product) {
     for (const name of ['name','category','description','price','sale_price','stock']) form.elements[name].value = product[name] ?? '';
-  } else {
-    form.elements.stock.value = '0';
   }
   $('#product-active').checked = Boolean(product?.active);
   $('#clear-photos-label').hidden = !product?.images.length;
@@ -274,12 +368,17 @@ async function refreshOrders(notice = '') {
 }
 
 function showTab(tab) {
-  const products = tab === 'products';
-  $('#products-tab').setAttribute('aria-pressed',String(products));
-  $('#orders-tab').setAttribute('aria-pressed',String(!products));
-  $('#inventory').hidden = !products;
-  $('#orders').hidden = products;
-  return products ? refreshProducts() : refreshOrders();
+  const views = {
+    products:['inventory',refreshProducts],
+    categories:['categories',refreshCategories],
+    storefront:['storefront',refreshStorefront],
+    orders:['orders',refreshOrders],
+  };
+  for (const [key,[id]] of Object.entries(views)) {
+    $('#' + key + '-tab').setAttribute('aria-pressed',String(key === tab));
+    $('#' + id).hidden = key !== tab;
+  }
+  return views[tab][1]();
 }
 
 $('#login').addEventListener('submit', async event => {
@@ -306,8 +405,53 @@ $('#logout').addEventListener('click', async () => {
     report(error, $('#signed-in'));
   }
 });
-$('#products-tab').addEventListener('click', () => showTab('products'));
-$('#orders-tab').addEventListener('click', () => showTab('orders'));
+for (const tab of ['products','categories','storefront','orders']) {
+  $('#' + tab + '-tab').addEventListener('click', () => showTab(tab));
+}
+$('#clear-sale').addEventListener('click',() => {
+  form.elements.sale_price.value = '';
+  form.elements.sale_price.focus();
+});
+$('#category-form').addEventListener('submit',async event => {
+  event.preventDefault();
+  const editor = event.currentTarget;
+  const submit = editor.querySelector('button');
+  submit.disabled = true;
+  try {
+    await api('/api/admin/categories',{method:'POST',json:{name:editor.elements.name.value}});
+    editor.reset();
+    await refreshCategories('Ангилал нэмэгдлээ.');
+  } catch (error) {
+    report(error,$('#categories-status'));
+  } finally {
+    submit.disabled = false;
+  }
+});
+storefrontForm.addEventListener('input',event => {
+  if (event.target === $('#storefront-image') && event.target.files.length) storefrontForm.elements.remove_image.checked = false;
+  if (event.target === storefrontForm.elements.remove_image && event.target.checked) $('#storefront-image').value = '';
+  renderStorefrontPreview();
+});
+storefrontForm.addEventListener('submit',async event => {
+  event.preventDefault();
+  const submit = storefrontForm.querySelector('button');
+  const status = $('#storefront-status');
+  submit.disabled = true;
+  status.textContent = 'Хадгалж байна…';
+  try {
+    const data = new FormData(storefrontForm);
+    data.set('version',String(storefront.version));
+    data.set('remove_image',storefrontForm.elements.remove_image.checked ? '1' : '0');
+    const photo = $('#storefront-image').files[0];
+    if (photo) data.set('image',await compressPhoto(photo),'hero.jpg');
+    fillStorefront(await api('/api/admin/storefront',{method:'POST',body:data}));
+    status.textContent = 'Нүүр хуудас шинэчлэгдлээ.';
+  } catch (error) {
+    report(error,status);
+  } finally {
+    submit.disabled = false;
+  }
+});
 $('#refresh-orders').addEventListener('click', () => refreshOrders());
 $('#new-product').addEventListener('click', () => openProduct(null));
 $('#close-editor').addEventListener('click', () => editor.close());
