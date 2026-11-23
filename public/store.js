@@ -32,11 +32,6 @@ const currentPrice = product => product.sale_price ?? product.price;
 const stockText = product => product.sample ? 'Жишээ бараа' : product.stock ? product.stock + ' ширхэг байна' : 'Дууссан';
 const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-function displayedVariant(product, color) {
-  if (!product.sample || color?.photo == null) return product;
-  return products.find(entry => entry.sample && entry.images[0] === product.images[color.photo]) ?? product;
-}
-
 function updateBag() {
   try { localStorage.setItem('tuya_bag', JSON.stringify(bag)); } catch {}
   const count = Object.values(bag).reduce((sum, quantity) => sum + quantity, 0);
@@ -192,12 +187,11 @@ function showDetail(product, initialColor) {
   const sizes = product.sizes ?? [];
   let selectedSize = sizes.length === 1 ? sizes[0] : null;
   let selectedColor = initialColor ?? (product.sample || colors.length === 1 ? colors[0] : null);
-  const shown = displayedVariant(product,selectedColor);
-  const title = node('h2',shown.name);
+  const title = node('h2',product.name);
   title.id = 'detail-title';
   const fullQuantity = () => quantityInBag(product.id) >= Math.min(product.stock,999);
-  const productPrice = priceBlock(shown);
-  const description = node('p',shown.description,'detail-description');
+  const productPrice = priceBlock(product);
+  const description = node('p',product.description,'detail-description');
   const feedback = node('p', '', 'detail-feedback');
   feedback.setAttribute('role','status');
   const viewBag = action('Сагс харах', 'button detail-view-bag', () => {
@@ -220,7 +214,9 @@ function showDetail(product, initialColor) {
   }
 
   const stock = node('span',stockText(product),'detail-status' + (product.stock ? ' is-available' : ''));
-  copy.append(node('p',product.category,'detail-category'),title,productPrice,stock);
+  copy.append(node('p',product.category,'detail-category'),title);
+  if (product.subtitle) copy.append(node('p',product.subtitle,'product-subtitle'));
+  copy.append(productPrice,stock);
   if (colors.length) {
     const choices = node('fieldset', '', 'store-color-options');
     const label = node('legend',selectedColor ? 'Өнгө · ' + selectedColor.name : 'Өнгө сонгох');
@@ -233,12 +229,6 @@ function showDetail(product, initialColor) {
           choice.setAttribute('aria-pressed',String(colors[i].id === color.id));
         }
         if (product.images.length) showPhoto(color.photo ?? 0);
-        if (product.sample) {
-          const variant = displayedVariant(product,color);
-          title.textContent = variant.name;
-          description.textContent = variant.description;
-          productPrice.replaceChildren(...priceBlock(variant).childNodes);
-        }
         if (!product.sample) updateAddButton();
       });
       const swatch = node('span', '', 'color-dot');
@@ -269,7 +259,7 @@ function showDetail(product, initialColor) {
     copy.append(group);
   }
   if (product.description) copy.append(description);
-  for (const [title,text] of [['Размерын заавар',product.size_guide],['Материал',product.material],['Арчилгаа',product.care]]) {
+  for (const [title,text] of [['Размерын заавар',product.size_guide],['Материал',product.material],['Арчилгаа',product.care],['Хийц, онцлог',product.design_notes]]) {
     if (!text) continue;
     const details = node('details','','product-fact');
     details.append(node('summary',title),node('p',text));
@@ -372,11 +362,18 @@ function renderCatalog() {
       image.hidden = true;
       media.querySelector('.no-image').hidden = false;
     }
-    media.querySelector('.sale-badge').hidden = !product.sale_price;
+    const badge = media.querySelector('.sale-badge');
+    badge.textContent = product.sale_price ? 'Хямдрал' : product.badge || '';
+    badge.hidden = !badge.textContent;
+    if (product.sale_price && product.badge) {
+      const label = node('span',product.badge,'product-custom-badge');
+      fragment.querySelector('.product-category').after(label);
+    }
     fragment.querySelector('.product-category').textContent = product.category;
     const title = fragment.querySelector('h3 button');
     title.textContent = product.name;
     title.addEventListener('click',openDetail);
+    if (product.subtitle) title.parentElement.after(node('p',product.subtitle,'product-subtitle'));
     const prices = priceBlock(product);
     fragment.querySelector('.prices').replaceWith(prices);
     if (product.colors?.length > 1) {
@@ -386,11 +383,6 @@ function renderCatalog() {
       product.colors.forEach((color,index) => {
         const swatch = action('', 'card-swatch', () => {
           previewColor = color;
-          const shown = displayedVariant(product,color);
-          title.textContent = shown.name;
-          media.setAttribute('aria-label',shown.name + ' үзэх');
-          prices.replaceChildren(...priceBlock(shown).childNodes);
-          media.querySelector('.sale-badge').hidden = !shown.sale_price;
           if (product.images.length) image.src = product.images[color.photo] ?? product.images[0];
           for (const [i,button] of [...variants.children].entries()) button.setAttribute('aria-pressed',String(i === index));
         });
@@ -424,10 +416,8 @@ function renderCatalog() {
 }
 
 async function loadProducts() {
-  const live = await api('/api/products');
-  const showingSamples = live.length === 0;
-  products = showingSamples ? await api('/collection-samples.json') : live;
-  $('#sample-notice').hidden = !showingSamples;
+  products = await api('/api/products');
+  $('#sample-notice').hidden = !products.length || !products.every(product => product.sample);
   const types = [...new Set(products.map(product => product.category))].sort((a,b) => a.localeCompare(b));
   $('#filter-type').replaceChildren(new Option('Бүх төрөл',''),...types.map(type=>new Option(type,type)));
   if (filters.type && !types.includes(filters.type)) filters.type = '';

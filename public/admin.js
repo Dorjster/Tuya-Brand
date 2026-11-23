@@ -4,7 +4,8 @@ const editor = $('#editor');
 const form = $('#product-form');
 const photoInput = $('#photo-input');
 const photoPreview = $('#photo-preview');
-const clearPhotos = $('#clear-photos');
+const maximumPhotos = 8;
+const maximumColors = 12;
 const inventoryStatus = $('#inventory-status');
 const ordersStatus = $('#orders-status');
 const colorList = $('#color-options');
@@ -23,8 +24,7 @@ const palette = [
 let colorInputs = [];
 let inventory = [];
 let editing;
-let previewUrls = [];
-let photoError = '';
+let gallery = [];
 
 function setMessage(selector, message) {
   const element = $(selector);
@@ -94,7 +94,7 @@ function renderInventory() {
   const query = $('#inventory-search').value.trim().toLowerCase();
   const status = $('#inventory-state').value;
   const results = inventory.filter(product => !product.archived &&
-    (status === 'all' || Boolean(product.active) === (status === 'published')) &&
+    (status === 'all' || (status === 'sample' ? product.sample : Boolean(product.active) === (status === 'published'))) &&
     (!query || [product.name,product.category,product.sku].some(value=>String(value ?? '').toLowerCase().includes(query))));
   $('#inventory-list').replaceChildren(...results.map(inventoryRow));
   if (!results.length && (query || status!=='all')) $('#inventory-list').append(node('p','Тохирох бараа алга.','muted'));
@@ -111,7 +111,7 @@ function inventoryRow(product) {
   }
   const details = node('div','','inventory-label');
   details.append(node('strong',product.name),node('p',product.category + ' · ' +
-    product.stock + ' ширхэг үлдсэн · ' + (product.archived ? 'Архивт' : product.active ? 'Нийтэлсэн' : 'Ноорог'),'muted'));
+    (product.sample ? 'Жишээ бараа' : product.stock + ' ширхэг үлдсэн') + ' · ' + (product.archived ? 'Архивт' : product.active ? 'Нийтэлсэн' : 'Ноорог'),'muted'));
   details.append(node('p',product.sale_price ? money(product.price) + ' → ' + money(product.sale_price) : money(product.price),'admin-row-price'));
   if (product.sku || product.sizes?.length) details.append(node('p',[product.sku,(product.sizes ?? []).join(', ')].filter(Boolean).join(' · '),'muted'));
   const buttons = node('div','','admin-actions');
@@ -222,24 +222,57 @@ async function refreshStorefront() {
   }
 }
 
+function changeGallery(next) {
+  const material = form.elements.material_photo;
+  const previousMaterial = material.value === '' ? null : gallery[Number(material.value)];
+  for (const {color} of colorInputs) {
+    if (color.photo == null || color.photo >= gallery.length) continue;
+    const position = next.indexOf(gallery[color.photo]);
+    color.photo = position < 0 ? null : position;
+  }
+  if (previousMaterial) {
+    const position = next.indexOf(previousMaterial);
+    material.dataset.pending = position < 0 ? '' : String(position);
+    material.value = '';
+  }
+  gallery = next;
+  refreshPreviews();
+}
+
 function refreshPreviews() {
-  previewUrls.forEach(url => URL.revokeObjectURL(url));
-  previewUrls = [...photoInput.files].slice(0,4).map(file => URL.createObjectURL(file));
-  const images = previewUrls.length ? previewUrls : clearPhotos.checked ? [] : editing?.images || [];
-  photoPreview.replaceChildren(...images.map((source,index) => {
+  photoPreview.replaceChildren(...gallery.map((entry,index) => {
     const item = node('div', '', 'admin-photo');
     const image = node('img');
-    image.src = source;
-    image.alt = 'Барааны зургийн урьдчилсан харагдац';
-    item.append(image,node('span',String(index + 1)));
+    image.src = entry.source;
+    image.alt = 'Зураг ' + (index + 1);
+    const buttons = node('div','','admin-gallery-actions');
+    const move = (label,position) => {
+      const button = action(label,'button secondary',() => {
+        const next = [...gallery];
+        next.splice(index,1);
+        next.splice(position,0,entry);
+        changeGallery(next);
+        photoPreview.children[position]?.querySelector('button:not(:disabled)')?.focus();
+      });
+      button.disabled = position < 0 || position >= gallery.length;
+      return button;
+    };
+    const remove = action('Хасах','button secondary',() => {
+      if (entry.file) URL.revokeObjectURL(entry.source);
+      changeGallery(gallery.filter(photo => photo !== entry));
+      photoInput.focus();
+    });
+    const cover = move('Нүүр зураг болгох',0);
+    cover.disabled = index === 0;
+    buttons.append(cover,move('Өмнө',index - 1),move('Хойно',index + 1),remove);
+    item.append(image,node('span',index === 0 ? '1 · Нүүр зураг' : String(index + 1)),buttons);
     return item;
   }));
-  syncColorPhotos(images.length);
+  syncColorPhotos(gallery.length);
   const materialPhoto = form.elements.material_photo;
-  const selected = materialPhoto.value;
-  materialPhoto.replaceChildren(new Option('Сонгоогүй',''),...images.map((_,i)=>new Option('Зураг ' + (i+1),String(i))));
-  const preferred = materialPhoto.dataset.pending || selected;
-  if (preferred && Number(preferred)<images.length) {
+  const preferred = materialPhoto.dataset.pending ?? materialPhoto.value;
+  materialPhoto.replaceChildren(new Option('Сонгоогүй',''),...gallery.map((_,i)=>new Option('Зураг ' + (i+1),String(i))));
+  if (preferred !== '' && Number(preferred)<gallery.length) {
     materialPhoto.value = preferred;
     delete materialPhoto.dataset.pending;
   }
@@ -253,29 +286,64 @@ function syncColorPhotos(count) {
   }
 }
 
+function addColorRow(color, selected, custom) {
+  const row = node('div', '', 'admin-color');
+  const label = node('label');
+  const check = node('input');
+  check.type = 'checkbox';
+  check.checked = selected;
+  const title = node('span',color.name || 'Шинэ өнгө');
+  const swatch = node('span', '', 'color-dot');
+  swatch.style.backgroundColor = color.hex;
+  label.append(check,swatch,title);
+  const select = node('select');
+  select.setAttribute('aria-label',(color.name || 'Шинэ өнгө') + ' өнгөний зураг');
+  const entry = {color,check,select,row};
+  check.addEventListener('change', () => syncColorPhotos(gallery.length));
+  select.addEventListener('change', () => { color.photo = select.value === '' ? null : Number(select.value); });
+  const details = node('details','','custom-color-fields');
+  details.open = custom;
+  details.append(node('summary','Нэр, өнгө засах'));
+  const name = node('input');
+  name.value = color.name;
+  name.maxLength = 35;
+  const hex = node('input');
+  hex.type = 'color';
+  hex.value = color.hex;
+  const nameLabel = node('label','Өнгөний нэр');
+  nameLabel.append(name);
+  const hexLabel = node('label','Өнгөний код');
+  hexLabel.append(hex);
+  name.addEventListener('input', () => {
+    color.name = name.value.trim();
+    title.textContent = color.name || 'Шинэ өнгө';
+    select.setAttribute('aria-label',title.textContent + ' өнгөний зураг');
+  });
+  hex.addEventListener('input', () => {
+    color.hex = hex.value;
+    swatch.style.backgroundColor = color.hex;
+  });
+  details.append(nameLabel,hexLabel);
+  if (custom) details.append(action('Өнгө хасах','button secondary',() => {
+    colorInputs = colorInputs.filter(item => item !== entry);
+    row.remove();
+    $('#add-custom-color').focus();
+  }));
+  row.append(label,select,details);
+  colorInputs.push(entry);
+  colorList.append(row);
+  return name;
+}
+
 function renderColorOptions(existing = []) {
   const saved = new Map(existing.map(color => [color.id, color]));
   const options = [...palette, ...existing.filter(color => !palette.some(entry => entry.id === color.id))];
-  colorInputs = options.map(entry => {
-    const color = {...entry,...saved.get(entry.id),photo:saved.get(entry.id)?.photo ?? null};
-    const row = node('div', '', 'admin-color');
-    const label = node('label');
-    const check = node('input');
-    check.type = 'checkbox';
-    check.checked = saved.has(color.id);
-    const swatch = node('span', '', 'color-dot');
-    swatch.style.backgroundColor = color.hex;
-    swatch.setAttribute('aria-hidden','true');
-    label.append(check,swatch,node('span',color.name));
-    const select = node('select');
-    select.setAttribute('aria-label',color.name + ' өнгөний зураг');
-    check.addEventListener('change', () => { select.disabled = !check.checked || !photoPreview.children.length; });
-    select.addEventListener('change', () => { color.photo = select.value === '' ? null : Number(select.value); });
-    row.append(label,select);
-    return {color,check,select,row};
-  });
-  colorList.replaceChildren(...colorInputs.map(entry=>entry.row));
-  syncColorPhotos(photoPreview.children.length);
+  colorInputs = [];
+  colorList.replaceChildren();
+  for (const entry of options) addColorRow(
+    {...entry, ...saved.get(entry.id), photo:saved.get(entry.id)?.photo ?? null},
+    saved.has(entry.id), !palette.some(color => color.id === entry.id));
+  syncColorPhotos(gallery.length);
 }
 
 function importProduct(text) {
@@ -299,18 +367,22 @@ function importProduct(text) {
     throw new Error('Нэр, ангилал, үнэ болон үлдэгдлийг шалгана уу.');
   }
   const choices = data.colors ?? [];
-  if (!Array.isArray(choices) || choices.length > palette.length) throw new Error('Markdown дахь өнгөний сонголтыг шалгана уу.');
+  if (!Array.isArray(choices) || choices.length > maximumColors) throw new Error('Markdown дахь өнгөний сонголтыг шалгана уу.');
   const ids = new Set();
   const colors = choices.map(choice => {
-    const entry = palette.find(color=>color.id === choice?.id);
+    const preset = palette.find(color=>color.id === choice?.id);
+    const entry = {...preset,...choice};
     const index = choice?.photo;
-    if (!entry || ids.has(entry.id) || (index != null && (!Number.isInteger(index) || index < 1 || index > 4))) {
+    if (typeof entry.id !== 'string' || !/^[a-z0-9-]{1,64}$/.test(entry.id) || ids.has(entry.id) ||
+      typeof entry.name !== 'string' || !entry.name.trim() || entry.name.length > 35 ||
+      typeof entry.hex !== 'string' || !/^#[a-f0-9]{6}$/i.test(entry.hex) ||
+      (index != null && (!Number.isInteger(index) || index < 1 || index > maximumPhotos))) {
       throw new Error('Markdown дахь өнгөний код болон зургийн дугаарыг шалгана уу.');
     }
     ids.add(entry.id);
     return {...entry, photo:index == null ? null : index - 1};
   });
-  for (const field of ['sku','size_guide','material','care']) {
+  for (const field of ['sku','size_guide','material','care','subtitle','badge','design_notes']) {
     if (data[field] != null && typeof data[field]!=='string') throw new Error(field + ' талбарыг шалгана уу.');
   }
   if (data.sizes != null && (!Array.isArray(data.sizes) || data.sizes.length>16 ||
@@ -318,9 +390,16 @@ function importProduct(text) {
     throw new Error('Markdown дахь размерын мэдээллийг шалгана уу.');
   }
   const materialPhoto = data.material_photo;
-  if (materialPhoto != null && (!Number.isInteger(materialPhoto)||materialPhoto<1||materialPhoto>4)) {
-    throw new Error('Материалын зургийн дугаар 1–4 байна.');
+  if (materialPhoto != null && (!Number.isInteger(materialPhoto)||materialPhoto<1||materialPhoto>maximumPhotos)) {
+    throw new Error('Материалын зургийн дугаар 1–8 байна.');
   }
+  if (data.display_priority != null && (!Number.isInteger(data.display_priority) || data.display_priority < 0 || data.display_priority > 9999)) {
+    throw new Error('Эрэмбэ 0–9999 хооронд байна.');
+  }
+  if (data.sample != null && typeof data.sample !== 'boolean') throw new Error('sample талбар true эсвэл false байна.');
+  if ('sample' in data) form.elements.sample.checked = data.sample === true;
+  if ('display_priority' in data) form.elements.display_priority.value = data.display_priority ?? 0;
+  for (const name of ['subtitle','badge','design_notes']) if (name in data) form.elements[name].value = data[name] ?? '';
   for (const name of [...fields,'sku','size_guide','material','care']) form.elements[name].value = data[name] ?? '';
   form.elements.sizes.value = (data.sizes ?? []).join(', ');
   form.elements.material_photo.dataset.pending = materialPhoto == null ? '' : String(materialPhoto-1);
@@ -334,17 +413,17 @@ function openProduct(product) {
   setMessage('#editor-error', '');
   form.reset();
   delete form.elements.material_photo.dataset.pending;
-  photoError = '';
+  gallery = (product?.images ?? []).map(source => ({source}));
   $('#import-guide').open = false;
   importStatus.textContent = 'Үүний дараа зургуудаа доороос нь сонгоно.';
   $('#editor-title').textContent = product ? 'Бараа засах' : 'Бараа нэмэх';
   if (product) {
-    for (const name of ['name','category','description','price','sale_price','stock','sku','size_guide','material','care']) form.elements[name].value = product[name] ?? '';
+    for (const name of ['name','category','description','price','sale_price','stock','sku','size_guide','material','care','subtitle','badge','design_notes','display_priority']) form.elements[name].value = product[name] ?? '';
     form.elements.sizes.value = (product.sizes ?? []).join(', ');
     if (product.material_photo != null) form.elements.material_photo.dataset.pending = String(product.material_photo);
   }
   $('#product-active').checked = Boolean(product?.active);
-  $('#clear-photos-label').hidden = !product?.images.length;
+  form.elements.sample.checked = Boolean(product?.sample);
   renderColorOptions(product?.colors);
   refreshPreviews();
   editor.showModal();
@@ -520,8 +599,8 @@ $('#refresh-orders').addEventListener('click', () => refreshOrders());
 $('#new-product').addEventListener('click', () => openProduct(null));
 $('#close-editor').addEventListener('click', () => editor.close());
 editor.addEventListener('close', () => {
-  previewUrls.forEach(url => URL.revokeObjectURL(url));
-  previewUrls = [];
+  for (const entry of gallery) if (entry.file) URL.revokeObjectURL(entry.source);
+  gallery = [];
 });
 importInput.addEventListener('change', async () => {
   const file = importInput.files[0];
@@ -540,21 +619,25 @@ importInput.addEventListener('change', async () => {
   }
 });
 photoInput.addEventListener('change', () => {
-  photoError = photoInput.files.length > 4 ? '4 хүртэл зураг сонгоно уу.' : '';
-  if (photoError) photoInput.value = '';
-  else if (photoInput.files.length) clearPhotos.checked = false;
-  setMessage('#editor-error',photoError);
-  refreshPreviews();
-});
-clearPhotos.addEventListener('change', () => {
-  if (clearPhotos.checked) photoInput.value = '';
-  photoError = '';
+  const files = [...photoInput.files];
+  photoInput.value = '';
+  if (gallery.length + files.length > maximumPhotos) {
+    setMessage('#editor-error','Нийт 8 хүртэл зураг ашиглана. Одоогийн зурагнаас хасаад дахин сонгоно уу.');
+    return;
+  }
   setMessage('#editor-error','');
-  refreshPreviews();
+  changeGallery([...gallery,...files.map(file => ({source:URL.createObjectURL(file),file}))]);
+});
+$('#add-custom-color').addEventListener('click', () => {
+  if (colorInputs.filter(entry => entry.check.checked).length >= maximumColors) {
+    setMessage('#editor-error','12 хүртэл өнгө сонгоно уу.');
+    return;
+  }
+  addColorRow({id:crypto.randomUUID(),name:'',hex:'#804450',photo:null},true,true).focus();
+  syncColorPhotos(gallery.length);
 });
 form.addEventListener('submit', async event => {
   event.preventDefault();
-  if (photoError) return setMessage('#editor-error',photoError);
   const submit = $('#save-product');
   const close = $('#close-editor');
   submit.disabled = close.disabled = true;
@@ -566,13 +649,22 @@ form.addEventListener('submit', async event => {
     const data = new FormData(form);
     data.set('active',$('#product-active').checked ? '1' : '0');
     if (product) data.set('version',String(product.version));
-    if (clearPhotos.checked) data.set('clear_photos','1');
+    data.set('sample',form.elements.sample.checked ? '1' : '0');
     const colors = colorInputs.filter(entry => entry.check.checked).map(({color,select}) => ({
       ...color, photo:select.value === '' ? null : Number(select.value),
     }));
+    if (colors.length > maximumColors || colors.some(color => !color.name)) throw new Error('12 хүртэл өнгө сонгоно. Сонгосон өнгө бүр нэртэй байна.');
     data.set('colors',JSON.stringify(colors));
     data.set('sizes',JSON.stringify(form.elements.sizes.value.split(',').map(size=>size.trim()).filter(Boolean)));
-    for (const photo of photoInput.files) data.append('photos',await compressPhoto(photo),'product.jpg');
+    const order = [];
+    let uploadIndex = 0;
+    for (const entry of [...gallery]) {
+      if (entry.file) {
+        order.push(uploadIndex++);
+        data.append('photos',await compressPhoto(entry.file),'product.jpg');
+      } else order.push(entry.source);
+    }
+    data.set('gallery',JSON.stringify(order));
     await api('/api/admin/products' + (product ? '/' + product.id : ''),{method:'POST',body:data});
     editor.close();
     await refreshProducts('Бараа хадгалагдлаа.');

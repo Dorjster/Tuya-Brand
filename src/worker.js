@@ -6,7 +6,8 @@ const uncategorized = 'Ангилалгүй';
 const themes = ['wine','ink','forest'];
 const positions = ['left','center','right'];
 const imageLimit = 1_500_000;
-const uploadLimit = 6_050_000;
+const maximumPhotos = 8;
+const uploadLimit = maximumPhotos * imageLimit + 100_000;
 const sessionLifetime = 8 * 3600;
 const photoTypes = {
   'image/jpeg': b => b[0] === 255 && b[1] === 216 && b[2] === 255,
@@ -143,8 +144,8 @@ async function login(request, env) {
 
 async function products(db, admin) {
   const [{ results }, { results: photos }] = await db.batch([
-    db.prepare(`SELECT id,name,category,description,price,sale_price,stock,cover,colors_json,sku,sizes_json,size_guide,material,care,material_photo${admin ? ',active,version,archived' : ''}
-      FROM products ${admin ? '' : 'WHERE active = 1 AND archived = 0'} ORDER BY created_at DESC, id DESC`),
+    db.prepare(`SELECT id,name,category,description,price,sale_price,stock,cover,colors_json,sku,sizes_json,size_guide,material,care,material_photo,sample,gallery_json,subtitle,badge,design_notes,display_priority${admin ? ',active,version,archived' : ''}
+      FROM products ${admin ? '' : 'WHERE active = 1 AND archived = 0'} ORDER BY display_priority DESC, created_at DESC, id DESC`),
     db.prepare(`SELECT photos.id,product_id FROM photos JOIN products ON products.id = photos.product_id
       ${admin ? '' : 'WHERE products.active = 1 AND products.archived = 0'} ORDER BY position`),
   ]);
@@ -153,9 +154,9 @@ async function products(db, admin) {
     if (!photosByProduct.has(photo.product_id)) photosByProduct.set(photo.product_id, []);
     photosByProduct.get(photo.product_id).push('/media/' + photo.id);
   }
-  return results.map(({cover, colors_json, sizes_json, ...product}) => {
+  return results.map(({cover, colors_json, sizes_json, gallery_json, ...product}) => {
     const images = photosByProduct.get(product.id) ?? [];
-    return { ...product, images: images.length ? images : cover ? [cover] : [], colors: JSON.parse(colors_json), sizes: JSON.parse(sizes_json) };
+    return { ...product, images: gallery_json ? JSON.parse(gallery_json) : images.length ? images : cover ? [cover] : [], colors: JSON.parse(colors_json), sizes: JSON.parse(sizes_json) };
   });
 }
 
@@ -169,7 +170,7 @@ function readProductColors(raw) {
       typeof color.hex !== 'string' || !/^#[0-9a-f]{6}$/i.test(color.hex)) {
       fail(400, 'Өнгөний мэдээллийг шалгана уу.');
     }
-    const photo = color.photo == null ? null : integer(color.photo, 0, 3, 'өнгөний зураг');
+    const photo = color.photo == null ? null : integer(color.photo, 0, maximumPhotos - 1, 'өнгөний зураг');
     ids.add(color.id);
     return {id:color.id, name:safeText(color.name,35,'өнгөний нэр',1), hex:color.hex, photo};
   });
@@ -205,7 +206,7 @@ async function validatedPhoto(photo) {
 }
 
 async function saveProduct(request, db, id) {
-  const form = await readMultipart(request,uploadLimit,'1.5 МБ хүртэл хэмжээтэй 4 зураг сонгоно уу.');
+  const form = await readMultipart(request,uploadLimit,'Тус бүр 1.5 МБ хүртэл хэмжээтэй 8 зураг сонгоно уу.');
   const price = integer(form.get('price'), 1, 999999999, 'price');
   const sale = form.get('sale_price');
   const values = [
@@ -218,24 +219,42 @@ async function saveProduct(request, db, id) {
     form.get('active') === '1' ? 1 : 0,
   ];
   const photos = form.getAll('photos');
-  if (photos.length > 4) fail(400, 'Choose up to four photos.');
+  if (photos.length > maximumPhotos) fail(400, '8 хүртэл зураг оруулна уу.');
   const uploads = [];
   for (const photo of photos) uploads.push({id:crypto.randomUUID(), ...await validatedPhoto(photo)});
   const productId = id || crypto.randomUUID();
   const version = id ? integer(form.get('version'), 1, Number.MAX_SAFE_INTEGER, 'product version') : null;
-  const replace = uploads.length || form.get('clear_photos') === '1';
-  // Old clients may omit the color field when editing an existing product.
+  // Version guards the photo order and image ownership throughout the edit.
   const previous = id ? await db.prepare(`SELECT colors_json,sizes_json,sku,size_guide,material,care,material_photo,cover,
-    (SELECT COUNT(*) FROM photos WHERE product_id=products.id) AS photo_count
+    sample,gallery_json,subtitle,badge,design_notes,display_priority
     FROM products WHERE id=? AND version=? AND archived=0`).bind(id,version).first() : null;
   if (id && !previous) fail(409, 'Барааны мэдээлэл өөрчлөгдсөн байна. Жагсаалтыг шинэчилнэ үү.');
-  const photoCount = replace ? uploads.length : previous?.photo_count || Number(Boolean(previous?.cover));
+  const existingPhotos = id ? (await db.prepare('SELECT id FROM photos WHERE product_id=? ORDER BY position')
+    .bind(id).all()).results.map(photo => '/media/' + photo.id) : [];
+  const previousGallery = previous?.gallery_json ? JSON.parse(previous.gallery_json) :
+    existingPhotos.length ? existingPhotos : previous?.cover ? [previous.cover] : [];
+  const uploadedPaths = uploads.map(photo => '/media/' + photo.id);
+  let gallery = previousGallery;
+  if (form.has('gallery')) {
+    let order;
+    try { order = JSON.parse(form.get('gallery')); } catch { fail(400,'Зургийн дарааллыг шалгана уу.'); }
+    if (!Array.isArray(order) || order.length > maximumPhotos) fail(400,'8 хүртэл зураг оруулна уу.');
+    gallery = order.map(entry => Number.isInteger(entry) ? uploadedPaths[entry] : previousGallery.find(path => path === entry));
+    if (gallery.some(path => !path) || new Set(gallery).size !== gallery.length ||
+      uploadedPaths.some(path => !gallery.includes(path))) fail(400,'Зургийн дарааллыг шалгана уу.');
+  } else if (uploads.length || form.get('clear_photos') === '1') {
+    gallery = uploadedPaths;
+  }
+  const photoCount = gallery.length;
   const colors = readProductColors(form.get('colors') ?? previous?.colors_json ?? '[]');
   for (const color of colors) {
-    if (color.photo !== null && color.photo >= photoCount) {
-      if (form.has('colors')) fail(400, 'Өнгөтэй холбох зургаа эхлээд сонгоно уу.');
-      color.photo = null;
-    }
+    if (color.photo === null) continue;
+    if (form.has('colors')) {
+      if (color.photo >= photoCount) fail(400, 'Өнгөтэй холбох зургаа эхлээд сонгоно уу.');
+    } else if (form.has('gallery') || gallery === previousGallery) {
+      const position = gallery.indexOf(previousGallery[color.photo]);
+      color.photo = position < 0 ? null : position;
+    } else if (color.photo >= photoCount) color.photo = null;
   }
   let sizes;
   try { sizes = JSON.parse(form.get('sizes') ?? previous?.sizes_json ?? '[]'); }
@@ -246,31 +265,45 @@ async function saveProduct(request, db, id) {
   sizes = sizes.map(size=>size.trim());
   if (new Set(sizes.map(size=>size.toLowerCase())).size!==sizes.length) fail(400,'Размер давхардаж байна.');
   const photoInput = form.get('material_photo');
-  const retainedPhoto = !replace && previous?.material_photo != null ? previous.material_photo : null;
-  const materialPhoto = photoInput === '' ? null : photoInput == null ? retainedPhoto : integer(photoInput,0,3,'материалын зургийн дугаар');
+  const retainedPhoto = previous?.material_photo != null ? gallery.indexOf(previousGallery[previous.material_photo]) : -1;
+  const materialPhoto = photoInput === '' ? null : photoInput == null ? (retainedPhoto < 0 ? null : retainedPhoto) : integer(photoInput,0,maximumPhotos - 1,'материалын зургийн дугаар');
   if (materialPhoto !== null && materialPhoto >= photoCount) fail(400,'Материалын ойрын зургийг сонгоно уу.');
   const sku = safeText(form.get('sku') ?? previous?.sku,64,'SKU');
   values.push(JSON.stringify(colors),sku,JSON.stringify(sizes),
     safeText(form.get('size_guide') ?? previous?.size_guide,1600,'размерын заавар'),
     safeText(form.get('material') ?? previous?.material,280,'материал'),
-    safeText(form.get('care') ?? previous?.care,650,'арчилгаа'),materialPhoto);
+    safeText(form.get('care') ?? previous?.care,650,'арчилгаа'),materialPhoto,
+    form.has('sample') ? Number(form.get('sample') === '1') : previous?.sample ?? 0, JSON.stringify(gallery),
+    safeText(form.get('subtitle') ?? previous?.subtitle,140,'товч танилцуулга'),
+    safeText(form.get('badge') ?? previous?.badge,28,'шошго'),
+    safeText(form.get('design_notes') ?? previous?.design_notes,1200,'хийцийн мэдээлэл'),
+    integer(form.get('display_priority') ?? previous?.display_priority ?? 0,0,9999,'эрэмбэ'));
   if (sku && await db.prepare('SELECT 1 FROM products WHERE sku=? COLLATE NOCASE AND id<>?').bind(sku,productId).first()) {
     fail(409,'SKU код өөр бараанд бүртгэлтэй байна.');
   }
   const lock = crypto.randomUUID();
   const changes = id
     ? db.prepare(`UPDATE products SET name=?,category=?,description=?,price=?,sale_price=?,stock=?,active=?,colors_json=?,sku=?,sizes_json=?,size_guide=?,material=?,care=?,material_photo=?,
-        cover=CASE WHEN ? THEN NULL ELSE cover END, version=version+1, write_key=? WHERE id=? AND version=? AND archived=0`)
-      .bind(...values, Number(Boolean(replace)), lock, id, version)
-    : db.prepare('INSERT INTO products (name,category,description,price,sale_price,stock,active,colors_json,sku,sizes_json,size_guide,material,care,material_photo,id,write_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        sample=?,gallery_json=?,subtitle=?,badge=?,design_notes=?,display_priority=?,cover=NULL, version=version+1, write_key=? WHERE id=? AND version=? AND archived=0`)
+      .bind(...values, lock, id, version)
+    : db.prepare('INSERT INTO products (name,category,description,price,sale_price,stock,active,colors_json,sku,sizes_json,size_guide,material,care,material_photo,sample,gallery_json,subtitle,badge,design_notes,display_priority,id,write_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .bind(...values, productId, lock);
   const batch = [changes, db.prepare(`INSERT OR IGNORE INTO product_categories (name)
     SELECT category FROM products WHERE id=? AND write_key=?`).bind(productId,lock)];
-  if (replace) {
-    batch.push(db.prepare('DELETE FROM photos WHERE product_id IN (SELECT id FROM products WHERE id=? AND write_key=?)')
-      .bind(productId, lock));
-    uploads.forEach((photo, position) => batch.push(db.prepare(`INSERT INTO photos (id,product_id,position,type,bytes)
-      SELECT ?,id,?,?,? FROM products WHERE id=? AND write_key=?`).bind(photo.id, position, photo.type, photo.bytes, productId, lock)));
+  for (const path of existingPhotos.filter(path => !gallery.includes(path))) {
+    batch.push(db.prepare('DELETE FROM photos WHERE id=? AND product_id IN (SELECT id FROM products WHERE id=? AND write_key=?)')
+      .bind(path.slice(7), productId, lock));
+  }
+  if (JSON.stringify(gallery) !== JSON.stringify(previousGallery)) {
+    // Free the position range before inserting or moving photos within the same transaction.
+    if (existingPhotos.length) batch.push(db.prepare('UPDATE photos SET position=position+100 WHERE product_id IN (SELECT id FROM products WHERE id=? AND write_key=?)')
+      .bind(productId,lock));
+    uploads.forEach(photo => batch.push(db.prepare(`INSERT INTO photos (id,product_id,position,type,bytes)
+      SELECT ?,id,?,?,? FROM products WHERE id=? AND write_key=?`).bind(photo.id, gallery.indexOf('/media/' + photo.id), photo.type, photo.bytes, productId, lock)));
+    for (const path of existingPhotos.filter(path => gallery.includes(path))) {
+      batch.push(db.prepare('UPDATE photos SET position=? WHERE id=? AND product_id IN (SELECT id FROM products WHERE id=? AND write_key=?)')
+        .bind(gallery.indexOf(path),path.slice(7),productId,lock));
+    }
   }
   let result;
   try { [result] = await db.batch(batch); }
@@ -419,7 +452,7 @@ async function placeOrder(request, db) {
   if (await existing()) return json({ id: orderRef });
   const ids = [...items.keys()];
   const { results } = await db.prepare(`SELECT id,name,COALESCE(sale_price,price) AS price,stock,colors_json,sizes_json,version
-    FROM products WHERE active=1 AND id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
+    FROM products WHERE active=1 AND archived=0 AND sample=0 AND id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
   if (results.length !== ids.length || results.some(p => items.get(p.id).price !== p.price || items.get(p.id).quantity > p.stock)) {
     fail(409, 'A price or stock level changed. Review your bag and try again.');
   }

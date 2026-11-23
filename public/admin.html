@@ -50,7 +50,7 @@
           </details>
           <div class="admin-inventory-controls fields">
             <label>Бараа хайх<input id="inventory-search" type="search" placeholder="Нэр, SKU эсвэл ангилал"></label>
-            <label>Төлөв<select id="inventory-state"><option value="all">Бүгд</option><option value="published">Нийтэлсэн</option><option value="draft">Ноорог</option></select></label>
+            <label>Төлөв<select id="inventory-state"><option value="all">Бүгд</option><option value="sample">Жишээ бараа</option><option value="published">Нийтэлсэн</option><option value="draft">Ноорог</option></select></label>
           </div>
           <p class="muted admin-help">Архивласан бараа дэлгүүрээс хасагдана. Архиваас ноорог болгон сэргээж болно. Захиалгад орсон барааны түүх хадгалагдана.</p>
           <p id="inventory-status" class="muted" role="status"></p><div id="inventory-list"></div>
@@ -129,6 +129,7 @@
         <p class="muted admin-help">Нэр, ангилал, үнэ, үлдэгдлээ бөглөнө. Нийтлэхээс өмнө «Дэлгүүрт харуулах»-ыг тэмдэглэнэ.</p>
         <label>Барааны нэр<input name="name" required maxlength="100"></label>
         <label>Ангилал<input name="category" required maxlength="45" list="admin-categories"><datalist id="admin-categories"></datalist></label>
+        <label>Товч танилцуулга<input name="subtitle" maxlength="140" placeholder="Жишээ нь Баярын өдөрт зориулсан хантааз"></label>
         <label>Тайлбар<textarea name="description" maxlength="2000" rows="3"></textarea></label>
         <fieldset class="admin-field-group">
           <legend>Код, размер ба материал</legend>
@@ -137,6 +138,7 @@
           <label>Размерууд<input name="sizes" maxlength="420" placeholder="Жишээ нь S, M, L, XL"></label>
           <label>Размерын заавар<textarea name="size_guide" maxlength="1600" rows="3" placeholder="M · Цээж 94–100 см&#10;L · Цээж 101–108 см"></textarea></label>
           <label>Материал<textarea name="material" maxlength="280" rows="2"></textarea></label>
+          <label>Хийц, онцлог<textarea name="design_notes" maxlength="1200" rows="3" placeholder="Жишээ нь Зөрүү энгэр, дотор халаас, хатгамал эмжээр"></textarea></label>
           <label>Арчилгаа<textarea name="care" maxlength="650" rows="2"></textarea></label>
         </fieldset>
         <div class="field-pair">
@@ -146,16 +148,24 @@
         <p class="muted">Үлдэгдэл нь энэ барааны бүх размер, өнгөнд нийлсэн тоо.</p>
         <label>Үлдэгдэл тоо (ширхэг)<input name="stock" required placeholder="Жишээ нь 10" type="number" inputmode="numeric" min="0" max="999999" step="1"></label>
         <label>Барааны зураг<input id="photo-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-describedby="photo-help"></label>
-        <p class="muted" id="photo-help">JPEG, PNG, WebP форматаар 4 хүртэл зураг сонгоно. Эхнийх нь нүүр зураг. Хээ, оёдол, ширхэгийг харуулсан ойрын зураг нэмээрэй. Шинэ зураг сонговол одоогийн зургуудыг солино.</p>
+        <p class="muted" id="photo-help">JPEG, PNG, WebP форматаар нийт 8 хүртэл зураг нэмнэ. Зураг бүрийг тусад нь зөөж, хасаж болно. Эхний зураг барааны карт дээр харагдана.</p>
         <div id="photo-preview" class="preview-list"></div>
         <label>Материалын ойрын зураг<select name="material_photo"><option value="">Сонгоогүй</option></select></label>
-        <label class="check-option" id="clear-photos-label" hidden><input id="clear-photos" type="checkbox"> Одоогийн зургуудыг устгах</label>
         <fieldset class="product-colors">
           <legend>Боломжит өнгө</legend>
           <p class="muted">Өнгөө тэмдэглээд, хүсвэл сонгосон зургуудын нэгтэй холбоорой.</p>
           <div id="color-options" class="admin-color-list"></div>
+          <button class="button secondary" id="add-custom-color" type="button">Өөр өнгө нэмэх</button>
         </fieldset>
-        <label class="check-option"><input id="product-active" type="checkbox"> Дэлгүүрт харуулах</label>
+        <fieldset class="admin-field-group">
+          <legend>Дэлгүүрт харагдах байдал</legend>
+          <label>Барааны шошго<input name="badge" maxlength="28" placeholder="Жишээ нь Шинэ загвар"></label>
+          <label>Эрэмбэ<input name="display_priority" type="number" min="0" max="9999" step="1" value="0"></label>
+          <p class="muted">Үндсэн жагсаалтад өндөр дугаартай бараа эхэнд гарна. Ижил дугаартай бол шинээр нэмснийг эхэнд харуулна.</p>
+          <label class="check-option"><input name="sample" type="checkbox"> Жишээ загвар</label>
+          <p class="muted">Жишээ загвараас захиалга авах бол энэ тэмдгийг аваад бодит үнэ, үлдэгдлээ бичнэ.</p>
+          <label class="check-option"><input id="product-active" type="checkbox"> Дэлгүүрт харуулах</label>
+        </fieldset>
         <p class="form-message" id="editor-error" role="alert" hidden></p>
         <button type="submit" class="button primary" id="save-product">Бараа хадгалах</button>
       </form>
